@@ -1,0 +1,33 @@
+{
+  "name": "FREQ — Mobin.A",
+  "short_name": "FREQ",
+  "description": "Live planet radio. Made by Mobin.A",
+  "id": "./",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07060f",
+  "theme_color": "#07060f",
+  "lang": "fa",
+  "dir": "auto",
+  "icons": [
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

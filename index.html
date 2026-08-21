@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FREQ — رادیوی سیاره · ساخته شده توسط مبین.آ</title>
+    <meta name="author" content="Mobin.A / مبین.آ" />
+    <meta name="theme-color" content="#07060f" />
+    <link rel="icon" type="image/png" href="./assets/icon-192.png" />
+    <link rel="apple-touch-icon" href="./assets/icon-180.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <canvas id="viz"></canvas>
+    <div class="vignette"></div>
+
+    <header class="top">
+      <button class="brand" id="about-btn" type="button">
+        <img src="./assets/icon-192.png" width="36" height="36" alt="FREQ" />
+        <div>
+          <div class="word" dir="ltr">FREQ</div>
+          <div class="tag" data-i18n="tag">رادیوی زندهٔ سیاره</div>
+        </div>
+      </button>
+      <form id="search-form" class="search">
+        <input id="q" type="search" autocomplete="off" data-i18n-placeholder="search" placeholder="جستجوی ایستگاه، سبک، شهر…" />
+      </form>
+      <div class="lang-switch">
+        <button type="button" data-lang="fa" class="on">فا</button>
+        <button type="button" data-lang="en">EN</button>
+      </div>
+    </header>
+
+    <div class="countries" id="countries"></div>
+    <div class="countries" id="genres"></div>
+    <div class="count-line" id="count-line"></div>
+
+    <main class="list" id="list"></main>
+
+    <footer class="player" id="player">
+      <img id="p-ico" alt="" />
+      <div class="p-meta">
+        <div class="kicker" data-i18n="onair">آن‌ایر</div>
+        <div id="p-name">—</div>
+        <div id="p-sub" class="sub"></div>
+      </div>
+      <button id="p-fav" class="ghost" type="button" title="♥">♡</button>
+      <button id="p-toggle" class="play" type="button" data-i18n="play">پخش</button>
+      <input id="vol" type="range" min="0" max="1" step="0.01" value="0.85" />
+    </footer>
+
+    <div class="credit">
+      <span data-i18n="credit">ساخته شده توسط</span> <b>مبین.آ</b>
+      · <span data-i18n="source">Radio Browser</span>
+    </div>
+
+    <div id="about" class="about" hidden>
+      <div class="about-card">
+        <img src="./assets/icon-192.png" width="88" height="88" alt="FREQ" />
+        <div class="word" dir="ltr">FREQ</div>
+        <h3 data-i18n="aboutTitle"></h3>
+        <p class="about-body" data-i18n="aboutBody"></p>
+        <p class="about-maker" data-i18n="aboutMaker">ساخته شده توسط مبین.آ</p>
+        <a class="tg" href="https://t.me/MobinA_programs" target="_blank" rel="noopener">
+          <span data-i18n="channel">کانال برنامه‌های من</span>
+          <span dir="ltr">t.me/MobinA_programs</span>
+        </a>
+        <button id="about-close" type="button" data-i18n="close">بستن</button>
+      </div>
+    </div>
+
+    <div id="loader">
+      <img src="./assets/icon-192.png" width="84" height="84" alt="" />
+      <div class="word" dir="ltr">FREQ</div>
+      <div id="load-sub" data-i18n="loading">در حال قفل روی فرکانس…</div>
+    </div>
+
+    <audio id="audio"></audio>
+    <script src="./i18n.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

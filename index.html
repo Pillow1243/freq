@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FREQ — رادیوی سیاره · ساخته شده توسط مبین.آ</title>
+    <title>FREQ — رادیوی لامپی · ساخته شده توسط مبین.آ</title>
     <meta name="author" content="Mobin.A / مبین.آ" />
-    <meta name="theme-color" content="#07060f" />
+    <meta name="theme-color" content="#2a1810" />
     <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png" />
@@ -17,21 +17,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Special+Elite&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=3" />
+    <link rel="stylesheet" href="./styles.css?v=4" />
   </head>
   <body>
     <canvas id="viz"></canvas>
     <div class="vignette"></div>
+    <div class="grain"></div>
 
     <header class="top">
       <button class="brand" id="about-btn" type="button">
-        <img src="./assets/icon-192.png" width="36" height="36" alt="FREQ" />
+        <img src="./assets/icon-192.png" width="40" height="40" alt="FREQ" />
         <div>
           <div class="word" dir="ltr">FREQ</div>
-          <div class="tag" data-i18n="tag">رادیوی زندهٔ سیاره</div>
+          <div class="tag" data-i18n="tag">رادیوی لامپی سیاره</div>
         </div>
       </button>
       <form id="search-form" class="search">
@@ -54,6 +55,14 @@
     <main class="list" id="list"></main>
 
     <footer class="player" id="player">
+      <span class="screw tl"></span><span class="screw tr"></span>
+      <span class="screw bl"></span><span class="screw br"></span>
+      <div class="tuner" aria-hidden="true">
+        <div class="tuner-scale">
+          <span>88</span><span>92</span><span>96</span><span>100</span><span>104</span><span>108</span>
+        </div>
+        <div class="needle" id="p-needle"></div>
+      </div>
       <canvas id="p-wave" class="p-wave"></canvas>
       <div class="dock">
         <button type="button" class="art-btn" data-act="expand" data-i18n-aria="expand">
@@ -97,72 +106,88 @@
     </footer>
 
     <div id="stage" class="stage" aria-hidden="true">
-      <div class="stage-handle" aria-hidden="true"></div>
-      <div class="stage-top">
-        <button type="button" class="ghost" data-act="collapse" data-i18n-aria="collapse">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 9.4 12 14l4.6-4.6L18 10.8l-6 6-6-6 1.4-1.4z"/></svg>
-        </button>
-        <div class="stage-brand">
-          <div class="word" dir="ltr">FREQ</div>
-          <div class="tag" id="s-live" data-i18n="nowplaying">در حال پخش</div>
+      <div class="cabinet">
+        <span class="screw tl"></span><span class="screw tr"></span>
+        <span class="screw bl"></span><span class="screw br"></span>
+        <div class="stage-handle" aria-hidden="true"></div>
+        <div class="stage-top">
+          <button type="button" class="ghost" data-act="collapse" data-i18n-aria="collapse">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 9.4 12 14l4.6-4.6L18 10.8l-6 6-6-6 1.4-1.4z"/></svg>
+          </button>
+          <div class="stage-brand">
+            <div class="word" dir="ltr">FREQ</div>
+            <div class="tag" id="s-live" data-i18n="nowplaying">در حال پخش</div>
+          </div>
+          <button type="button" class="ghost fav-btn" data-act="fav" id="s-fav" data-i18n-aria="fav">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.2 10.4 18.8C5.4 14.3 2 11.3 2 7.6 2 4.6 4.4 2.2 7.4 2.2c1.7 0 3.3.8 4.6 2.1 1.3-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.4 6.7-8.4 11.2L12 20.2z"/></svg>
+          </button>
         </div>
-        <button type="button" class="ghost fav-btn" data-act="fav" id="s-fav" data-i18n-aria="fav">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.2 10.4 18.8C5.4 14.3 2 11.3 2 7.6 2 4.6 4.4 2.2 7.4 2.2c1.7 0 3.3.8 4.6 2.1 1.3-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.4 6.7-8.4 11.2L12 20.2z"/></svg>
-        </button>
-      </div>
 
-      <div class="stage-hero">
-        <canvas id="s-ring"></canvas>
-        <div class="vinyl big" id="s-vinyl">
-          <img id="s-ico" alt="" referrerpolicy="no-referrer" hidden />
-          <span id="s-ph" class="art-ph">F</span>
+        <div class="dial-plate">
+          <div class="tuner tall" aria-hidden="true">
+            <div class="tuner-scale">
+              <span>88</span><span>92</span><span>96</span><span>100</span><span>104</span><span>108</span>
+            </div>
+            <div class="needle" id="s-needle"></div>
+          </div>
+          <div class="stage-hero">
+            <canvas id="s-ring"></canvas>
+            <div class="vinyl big" id="s-vinyl">
+              <img id="s-ico" alt="" referrerpolicy="no-referrer" hidden />
+              <span id="s-ph" class="art-ph">F</span>
+            </div>
+          </div>
+          <div class="vu-row" aria-hidden="true">
+            <div class="vu"><b>L</b><span><i></i></span></div>
+            <div class="vu"><b>R</b><span><i></i></span></div>
+          </div>
         </div>
-      </div>
 
-      <div class="stage-eq" id="s-eq" aria-hidden="true">
-        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-      </div>
-
-      <div class="stage-meta">
-        <div class="kicker">
-          <span class="led"></span>
-          <span id="s-kick" data-i18n="onair">آن‌ایر</span>
-          <span id="s-freq" class="freq" dir="ltr"></span>
+        <div class="stage-eq" id="s-eq" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
         </div>
-        <h2 id="s-name">—</h2>
-        <p id="s-sub" class="sub"></p>
-        <p id="s-time" class="elapsed" dir="ltr">00:00:00</p>
-      </div>
 
-      <div class="stage-ctrls">
-        <button type="button" class="ghost" data-act="rand" data-i18n-aria="random">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.2 4h2.6v2.6h-2.1l-3.2 3.2-1.5-1.5 3.1-3.1h.01zM4.2 5.5h5.4l1.7 1.7-1.5 1.5-1.3-1.3H4.2V5.5zm13 8.3 3 3V19h-2.6v-.9l-3.1-3.1 1.5-1.5 1.2 1.3zM4.2 17.2h4.3l8.2-8.2 1.5 1.5-8.3 8.3H4.2v-1.6z"/></svg>
-        </button>
-        <button type="button" class="ghost lg" data-act="prev" data-i18n-aria="prev">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2.2v12H6V6zm3.2 6 8.8 6.2V5.8L9.2 12z"/></svg>
-        </button>
-        <button type="button" class="play xl" data-act="toggle" id="s-toggle" data-i18n-aria="play">
-          <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.4 12 8 5.2z"/></svg>
-          <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7V5zm6.6 0H17v14h-3.4V5z"/></svg>
-        </button>
-        <button type="button" class="ghost lg" data-act="next" data-i18n-aria="next">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 6H18v12h-2.2V6zM6 18.2 14.8 12 6 5.8v12.4z"/></svg>
-        </button>
-        <button type="button" class="ghost" data-act="mute" id="mute-btn" data-i18n-aria="volume">
-          <svg class="ic-vol" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 6v12l-4.8-3.5H4V9.5zm12.2.2a4 4 0 0 1 0 4.6l-1.4-1.1a2.2 2.2 0 0 0 0-2.4l1.4-1.1zm2.3-2.6a7.4 7.4 0 0 1 0 9.8l-1.4-1.2a5.6 5.6 0 0 0 0-7.4l1.4-1.2z"/></svg>
-          <svg class="ic-mute" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 6v12l-4.8-3.5H4V9.5zm11.2.1 1.5-1.5 1.4 1.5 1.5-1.5 1.3 1.4-1.5 1.5 1.5 1.5-1.3 1.4-1.5-1.5-1.4 1.5-1.5-1.4 1.5-1.5-1.5-1.4z"/></svg>
-        </button>
-      </div>
+        <div class="stage-meta">
+          <div class="kicker">
+            <span class="led"></span>
+            <span id="s-kick" data-i18n="onair">آن‌ایر</span>
+            <span id="s-freq" class="freq" dir="ltr"></span>
+          </div>
+          <h2 id="s-name">—</h2>
+          <p id="s-sub" class="sub"></p>
+          <p id="s-time" class="elapsed" dir="ltr">00:00:00</p>
+        </div>
 
-      <div class="stage-vol">
-        <input id="vol" class="vol" data-vol type="range" min="0" max="1" step="0.01" value="0.85" />
-        <span id="vol-n" dir="ltr">85</span>
-      </div>
+        <div class="stage-ctrls">
+          <button type="button" class="ghost" data-act="rand" data-i18n-aria="random">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.2 4h2.6v2.6h-2.1l-3.2 3.2-1.5-1.5 3.1-3.1h.01zM4.2 5.5h5.4l1.7 1.7-1.5 1.5-1.3-1.3H4.2V5.5zm13 8.3 3 3V19h-2.6v-.9l-3.1-3.1 1.5-1.5 1.2 1.3zM4.2 17.2h4.3l8.2-8.2 1.5 1.5-8.3 8.3H4.2v-1.6z"/></svg>
+          </button>
+          <button type="button" class="ghost lg" data-act="prev" data-i18n-aria="prev">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2.2v12H6V6zm3.2 6 8.8 6.2V5.8L9.2 12z"/></svg>
+          </button>
+          <button type="button" class="play xl" data-act="toggle" id="s-toggle" data-i18n-aria="play">
+            <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.4 12 8 5.2z"/></svg>
+            <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7V5zm6.6 0H17v14h-3.4V5z"/></svg>
+          </button>
+          <button type="button" class="ghost lg" data-act="next" data-i18n-aria="next">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 6H18v12h-2.2V6zM6 18.2 14.8 12 6 5.8v12.4z"/></svg>
+          </button>
+          <button type="button" class="ghost" data-act="mute" id="mute-btn" data-i18n-aria="volume">
+            <svg class="ic-vol" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 6v12l-4.8-3.5H4V9.5zm12.2.2a4 4 0 0 1 0 4.6l-1.4-1.1a2.2 2.2 0 0 0 0-2.4l1.4-1.1zm2.3-2.6a7.4 7.4 0 0 1 0 9.8l-1.4-1.2a5.6 5.6 0 0 0 0-7.4l1.4-1.2z"/></svg>
+            <svg class="ic-mute" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 6v12l-4.8-3.5H4V9.5zm11.2.1 1.5-1.5 1.4 1.5 1.5-1.5 1.3 1.4-1.5 1.5 1.5 1.5-1.3 1.4-1.5-1.5-1.4 1.5-1.5-1.4 1.5-1.5-1.5-1.4z"/></svg>
+          </button>
+        </div>
 
-      <div class="stage-sleep">
-        <span class="sleep-lab" data-i18n="sleep">خواب</span>
-        <div id="sleep-chips" class="chips"></div>
-        <span id="sleep-left" class="sleep-left" dir="ltr"></span>
+        <div class="stage-vol">
+          <input id="vol" class="vol" data-vol type="range" min="0" max="1" step="0.01" value="0.85" />
+          <span id="vol-n" dir="ltr">85</span>
+        </div>
+
+        <div class="stage-sleep">
+          <span class="sleep-lab" data-i18n="sleep">خواب</span>
+          <div id="sleep-chips" class="chips"></div>
+          <span id="sleep-left" class="sleep-left" dir="ltr"></span>
+        </div>
       </div>
     </div>
 
@@ -200,13 +225,13 @@
     </div>
 
     <div id="loader">
-      <img src="./assets/icon-192.png" width="84" height="84" alt="" />
+      <img src="./assets/icon-192.png" width="92" height="92" alt="" />
       <div class="word" dir="ltr">FREQ</div>
-      <div id="load-sub" data-i18n="loading">در حال قفل روی فرکانس…</div>
+      <div id="load-sub" data-i18n="loading">لامپ‌ها گرم می‌شوند…</div>
     </div>
 
     <audio id="audio"></audio>
-    <script src="./i18n.js?v=3"></script>
-    <script src="./app.js?v=3"></script>
+    <script src="./i18n.js?v=4"></script>
+    <script src="./app.js?v=4"></script>
   </body>
 </html>

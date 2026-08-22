@@ -89,6 +89,7 @@
     prevVol: Number(localStorage.getItem("freq-vol") || "0.85") || 0.85,
     stageOpen: false,
     sheet: null,
+    mhz: 96,
   };
 
   function safeParse(key, fallback) {
@@ -352,7 +353,7 @@
     const name = (station && station.name) || "FREQ";
     const h = hashHue(name);
     el.textContent = initials(name);
-    el.style.background = `conic-gradient(from 210deg, hsl(${h} 86% 58%), hsl(${(h + 48) % 360} 90% 46%), #141022, hsl(${h} 86% 58%))`;
+    el.style.background = `conic-gradient(from 210deg, hsl(${(h % 40) + 22} 70% 46%), hsl(32 78% 36%), #1a1008, hsl(${(h % 40) + 28} 68% 44%))`;
   }
   function setArt(img, ph, station) {
     if (!img || !ph) return;
@@ -404,6 +405,14 @@
     const el = $(id);
     if (el) el.textContent = value;
   }
+  function setNeedle(mhz) {
+    const t = Math.min(1, Math.max(0, ((Number(mhz) || 96) - 88) / 20));
+    const left = 6 + t * 88;
+    ["p-needle", "s-needle"].forEach((id) => {
+      const el = $(id);
+      if (el) el.style.left = left + "%";
+    });
+  }
   function renderPlayer() {
     const s = state.current;
     const player = $("player");
@@ -446,6 +455,7 @@
       setText("s-sub", "");
       setText("p-freq", "");
       setText("s-freq", "");
+      setNeedle(96);
       return;
     }
 
@@ -458,8 +468,10 @@
     setText("p-sub", sub);
     setText("s-sub", sub);
     const mhz = fakeFreq(s);
+    state.mhz = parseFloat(mhz) || 96;
     setText("p-freq", mhz);
     setText("s-freq", mhz);
+    setNeedle(state.mhz);
     setArt($("p-ico"), $("p-ph"), s);
     setArt($("s-ico"), $("s-ph"), s);
     if ($("p-vinyl")) $("p-vinyl").classList.toggle("live", state.playing);
@@ -648,6 +660,12 @@
     const ctx = c.getContext("2d");
     if (!ctx) return;
     let t = 0;
+    const motes = Array.from({ length: 48 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      r: 0.4 + Math.random() * 1.4,
+      s: 0.15 + Math.random() * 0.4,
+    }));
     function resize() {
       c.width = innerWidth * devicePixelRatio;
       c.height = innerHeight * devicePixelRatio;
@@ -658,37 +676,41 @@
     resize();
     addEventListener("resize", resize);
     function frame() {
-      t += state.playing ? 0.032 : 0.008;
+      t += state.playing ? 0.018 : 0.006;
       const w = innerWidth;
       const h = innerHeight;
-      ctx.fillStyle = "rgba(7,6,15,0.2)";
+      ctx.fillStyle = "rgba(22,14,9,0.22)";
       ctx.fillRect(0, 0, w, h);
       const cx = w / 2;
-      const cy = h * 0.4;
-      for (let i = 8; i >= 1; i--) {
-        const r = 36 + i * 34 + Math.sin(t * 2 + i) * (state.playing ? 16 : 4);
+      const cy = h * 0.38;
+      const lamp = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w, h) * 0.55);
+      lamp.addColorStop(0, state.playing ? "rgba(255,140,40,0.16)" : "rgba(201,162,39,0.07)");
+      lamp.addColorStop(1, "rgba(22,14,9,0)");
+      ctx.fillStyle = lamp;
+      ctx.fillRect(0, 0, w, h);
+      for (let i = 7; i >= 1; i--) {
+        const r = 28 + i * 38 + Math.sin(t * 1.4 + i) * (state.playing ? 10 : 3);
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = i % 2 ? `rgba(255,43,214,${0.07 + i * 0.03})` : `rgba(122,240,255,${0.05 + i * 0.02})`;
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = i % 2 ? `rgba(255,176,32,${0.05 + i * 0.02})` : `rgba(201,162,39,${0.04 + i * 0.015})`;
+        ctx.lineWidth = 1.4;
         ctx.stroke();
       }
-      if (state.playing) {
-        for (let i = 0; i < 36; i++) {
-          const a = (i / 36) * Math.PI * 2 + t;
-          const len = 18 + Math.abs(Math.sin(t * 4 + i)) * 28;
-          ctx.beginPath();
-          ctx.moveTo(cx + Math.cos(a) * 22, cy + Math.sin(a) * 22);
-          ctx.lineTo(cx + Math.cos(a) * (22 + len), cy + Math.sin(a) * (22 + len));
-          ctx.strokeStyle = i % 2 ? "rgba(255,43,214,0.35)" : "rgba(122,240,255,0.28)";
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        }
-      }
       ctx.beginPath();
-      ctx.arc(cx, cy, 9 + (state.playing ? 5 : 0), 0, Math.PI * 2);
-      ctx.fillStyle = state.playing ? "#ff2bd6" : "#7af0ff";
+      ctx.arc(cx, cy, 7 + (state.playing ? 3 : 0), 0, Math.PI * 2);
+      ctx.fillStyle = state.playing ? "#ff6a1a" : "#c9a227";
+      ctx.shadowColor = state.playing ? "#ff6a1a" : "#c9a227";
+      ctx.shadowBlur = 16;
       ctx.fill();
+      ctx.shadowBlur = 0;
+      motes.forEach((m) => {
+        m.y -= m.s * 0.00035;
+        if (m.y < 0) m.y = 1;
+        ctx.beginPath();
+        ctx.arc(m.x * w, m.y * h, m.r, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,220,160,0.18)";
+        ctx.fill();
+      });
       requestAnimationFrame(frame);
     }
     frame();
@@ -723,10 +745,10 @@
         else ctx.lineTo(x, y);
       }
       const g = ctx.createLinearGradient(0, 0, w, 0);
-      g.addColorStop(0, "rgba(122,240,255,0)");
-      g.addColorStop(0.2, "rgba(122,240,255,0.55)");
-      g.addColorStop(0.55, "rgba(255,43,214,0.8)");
-      g.addColorStop(1, "rgba(122,240,255,0)");
+      g.addColorStop(0, "rgba(255,176,32,0)");
+      g.addColorStop(0.2, "rgba(255,176,32,0.55)");
+      g.addColorStop(0.55, "rgba(180,35,24,0.75)");
+      g.addColorStop(1, "rgba(255,176,32,0)");
       ctx.strokeStyle = g;
       ctx.lineWidth = 1.6;
       ctx.stroke();

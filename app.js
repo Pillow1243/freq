@@ -116,6 +116,11 @@
     mapOpen: false,
     carOpen: false,
     mapPts: [],
+    filtersOpen: false,
+    theme: localStorage.getItem("freq-theme") || "dark",
+    forYou: [],
+    nearList: [],
+    homeAll: false,
   };
   function padPresets(arr) {
     const out = Array.isArray(arr) ? arr.slice(0, 6) : [];
@@ -171,6 +176,8 @@
     renderPlayer();
     syncAlarmUi();
     tickClock();
+    applyTheme();
+    syncFiltersBtn();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
@@ -349,32 +356,68 @@
       .join("");
   }
 
+  function stationCard(s, rail) {
+    const on = state.current && s.stationuuid === state.current.stationuuid ? "on" : "";
+    const ico = s.favicon
+      ? `<img src="${s.favicon}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=ph></div>'">`
+      : `<div class="ph"></div>`;
+    const tags = (s.tags || "").split(",").filter(Boolean).slice(0, 2).join(" · ");
+    const fl = flag(s.countrycode);
+    if (rail) {
+      return `<button type="button" class="rail-card ${on}" data-play="${s.stationuuid}">
+        ${ico}
+        <div class="nm">${esc((s.name || "—").slice(0, 28))}</div>
+        <div class="meta">${esc(s.country || "")}</div>
+      </button>`;
+    }
+    return `<div class="card ${on}" data-id="${s.stationuuid}">
+      ${ico}
+      <button type="button" class="card-hit" data-play="${s.stationuuid}">
+        <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}</div>
+        <div class="meta">${esc(s.country || "")} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + esc(tags) : ""}</div>
+      </button>
+      <button type="button" class="info" data-info="${s.stationuuid}">i</button>
+    </div>`;
+  }
+  function isHome() {
+    return (
+      state.mode === "browse" &&
+      !state.homeAll &&
+      !state.q.trim() &&
+      !state.tag &&
+      !state.cc &&
+      !state.langFilter
+    );
+  }
+  function railBlock(title, items) {
+    if (!items || !items.length) return "";
+    return `<section class="rail">
+      <div class="rail-top"><h3>${esc(title)}</h3>
+      <button type="button" data-act="seeall">${t("seeall")}</button></div>
+      <div class="rail-row">${items.slice(0, 10).map(function (s) { return stationCard(s, true); }).join("")}</div>
+    </section>`;
+  }
   function renderList() {
     const n = state.stations.length;
     const cfn = dict().count;
     $("count-line").textContent = typeof cfn === "function" ? cfn(n) : String(n);
+    if (isHome()) {
+      const cont = (state.recents || []).slice(0, 10);
+      const you = (state.forYou || []).length ? state.forYou : state.stations.slice(8, 18);
+      const trend = state.stations.slice(0, 10);
+      const near = state.nearList || [];
+      $("list").innerHTML =
+        railBlock(t("continue"), cont) +
+        railBlock(t("foryou"), you) +
+        railBlock(t("near"), near) +
+        railBlock(t("trending"), trend);
+      return;
+    }
     if (!state.stations.length) {
       $("list").innerHTML = `<div class="card">${t("empty")}</div>`;
       return;
     }
-    const cards = state.stations
-      .map((s) => {
-        const on = state.current && s.stationuuid === state.current.stationuuid ? "on" : "";
-        const ico = s.favicon
-          ? `<img src="${s.favicon}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=ph></div>'">`
-          : `<div class="ph"></div>`;
-        const tags = (s.tags || "").split(",").filter(Boolean).slice(0, 2).join(" · ");
-        const fl = flag(s.countrycode);
-        return `<div class="card ${on}" data-id="${s.stationuuid}">
-          ${ico}
-          <button type="button" class="card-hit" data-play="${s.stationuuid}">
-            <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}</div>
-            <div class="meta">${esc(s.country || "")} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + esc(tags) : ""}</div>
-          </button>
-          <button type="button" class="info" data-info="${s.stationuuid}">i</button>
-        </div>`;
-      })
-      .join("");
+    const cards = state.stations.map(function (s) { return stationCard(s, false); }).join("");
     const more = state.hasMore ? `<button id="more" class="more" type="button">${t("more")}</button>` : "";
     $("list").innerHTML = cards + more;
   }
@@ -954,6 +997,7 @@
     state.alarmFade = true;
     const s = state.presets[0] || state.current || state.favs[0] || state.stations[0];
     if (s) play(s);
+    pingAlarm(s);
     openStand();
   }
   function stationUrl(s) {
@@ -1406,6 +1450,106 @@
     if (el) el.hidden = true;
   }
 
+
+  function applyTheme() {
+    const th = state.theme || "dark";
+    document.documentElement.setAttribute("data-theme", th);
+    try { localStorage.setItem("freq-theme", th); } catch (_) {}
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", th === "light" ? "#f4f4f5" : "#09090b");
+  }
+  function cycleTheme() {
+    const order = ["dark", "oled", "light"];
+    const i = order.indexOf(state.theme);
+    state.theme = order[(i + 1) % order.length];
+    applyTheme();
+    toast(t("theme") + " · " + state.theme);
+  }
+  function syncFiltersBtn() {
+    const b = $("filters-btn");
+    const box = $("filters");
+    if (b) b.classList.toggle("on", !!state.filtersOpen);
+    if (box) box.hidden = !state.filtersOpen;
+  }
+  function toggleFilters() {
+    state.filtersOpen = !state.filtersOpen;
+    syncFiltersBtn();
+  }
+  async function loadDiscover() {
+    const bag = {};
+    (state.recents || []).concat(state.favs || []).forEach(function (s) {
+      String(s.tags || "").split(",").forEach(function (raw) {
+        const tag = raw.trim();
+        if (tag) bag[tag] = (bag[tag] || 0) + 1;
+      });
+    });
+    const top = Object.keys(bag).sort(function (a, b) { return bag[b] - bag[a]; })[0];
+    if (!top) return;
+    try {
+      const data = await getJSON("/json/stations/search?hidebroken=true&is_https=true&limit=16&order=clickcount&reverse=true&tag=" + encodeURIComponent(top));
+      state.forYou = (data || []).filter(function (s) {
+        return (s.url_resolved || s.url || "").startsWith("https://");
+      });
+      if (isHome()) renderList();
+    } catch (_) {}
+  }
+  async function loadNear() {
+    let lat = 50.1109, lon = 8.6821;
+    try {
+      if (navigator.geolocation) {
+        const pos = await new Promise(function (res, rej) {
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2500, maximumAge: 600000 });
+        });
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+      }
+    } catch (_) {
+      const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toLowerCase();
+      if (tz.indexOf("tehran") >= 0) { lat = 35.6892; lon = 51.389; }
+    }
+    try {
+      const data = await getJSON("/json/stations/search?hidebroken=true&is_https=true&has_geo_info=true&limit=200&order=clickcount&reverse=true");
+      const list = (data || []).filter(function (s) {
+        return s.geo_lat && (s.url_resolved || s.url || "").startsWith("https://");
+      }).map(function (s) {
+        const dlat = Number(s.geo_lat) - lat;
+        const dlon = Number(s.geo_long) - lon;
+        s._d = dlat * dlat + dlon * dlon;
+        return s;
+      }).sort(function (a, b) { return a._d - b._d; }).slice(0, 16);
+      state.nearList = list;
+      if (isHome()) renderList();
+    } catch (_) {}
+  }
+  function goNear() {
+    state.mode = "browse";
+    state.homeAll = false;
+    if (state.nearList && state.nearList.length) {
+      state.stations = state.nearList.slice();
+      state.hasMore = false;
+      renderList();
+      toast(t("near"));
+    } else {
+      loadNear().then(function () {
+        if (state.nearList.length) {
+          state.stations = state.nearList.slice();
+          renderList();
+        }
+      });
+    }
+  }
+  function pingAlarm(s) {
+    try {
+      if (typeof Notification === "undefined") return;
+      if (Notification.permission !== "granted") return;
+      new Notification("FREQ", {
+        body: (s && s.name) || t("alarm"),
+        icon: "./assets/icon-192.png",
+        tag: "freq-alarm",
+      });
+    } catch (_) {}
+  }
+
   function viz() {
     const c = $("viz");
     if (!c || !c.getContext) return;
@@ -1615,6 +1759,7 @@
       if (!btn) return;
       state.mode = "browse";
       state.cc = btn.dataset.cc;
+      state.homeAll = !!btn.dataset.cc;
       state.q = "";
       $("q").value = "";
       loadStations().catch(() => {});
@@ -1669,8 +1814,21 @@
       e.preventDefault();
       state.q = $("q").value || "";
       state.mode = "browse";
+      state.homeAll = !!state.q.trim();
       loadStations().catch(() => {});
     });
+    let searchT = 0;
+    if ($("q")) {
+      $("q").addEventListener("input", function () {
+        clearTimeout(searchT);
+        searchT = setTimeout(function () {
+          state.q = $("q").value || "";
+          state.mode = "browse";
+          state.homeAll = !!state.q.trim();
+          loadStations().catch(function () {});
+        }, 380);
+      });
+    }
     $("list").addEventListener("click", (e) => {
       if (e.target.closest("#more")) {
         loadStations(true).catch(() => {});
@@ -1715,7 +1873,18 @@
       $("help").addEventListener("click", (e) => {
         if (e.target.id === "help") closeHelp();
       });
-    if ($("alarm-on")) $("alarm-on").addEventListener("change", readAlarmUi);
+    if ($("alarm-on")) $("alarm-on").addEventListener("change", function () {
+      readAlarmUi();
+      if (state.alarm.on && typeof Notification !== "undefined" && Notification.permission === "default") {
+        Notification.requestPermission().catch(function () {});
+      }
+    });
+    addEventListener("beforeinstallprompt", function (e) {
+      e.preventDefault();
+      window._freqPrompt = e;
+      const b = $("install-btn");
+      if (b) b.hidden = false;
+    });
     if ($("alarm-time")) $("alarm-time").addEventListener("change", readAlarmUi);
     if ($("import-file"))
       $("import-file").addEventListener("change", (e) => {
@@ -1763,6 +1932,18 @@
       else if (act === "car") toggleCar();
       else if (act === "newfolder") newFolder();
       else if (act === "addfolder") addToFolder();
+      else if (act === "filters") toggleFilters();
+      else if (act === "near") goNear();
+      else if (act === "theme") cycleTheme();
+      else if (act === "seeall") { state.homeAll = true; renderList(); }
+      else if (act === "install") {
+        if (window._freqPrompt) {
+          window._freqPrompt.prompt();
+          window._freqPrompt = null;
+          const b = $("install-btn");
+          if (b) b.hidden = true;
+        }
+      }
     }
     document.addEventListener("click", onAct);
     document.addEventListener("click", function (e) {
@@ -1944,6 +2125,9 @@
       tickClock();
       await applyDeepLink();
       loadWeather().catch(function () {});
+      loadDiscover().catch(function () {});
+      loadNear().catch(function () {});
+      applyTheme();
       if (navigator.serviceWorker) {
         navigator.serviceWorker.register("./sw.js").catch(function () {});
       }

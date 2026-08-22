@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=7" />
+    <link rel="stylesheet" href="./styles.css?v=8" />
   </head>
   <body>
     <canvas id="viz"></canvas>
@@ -45,20 +45,26 @@
     </header>
 
     <div class="countries" id="countries"></div>
-    <div class="countries" id="genres"></div>
-    <div class="countries" id="langs"></div>
-    <div class="countries" id="bands"></div>
-    <div class="folders" id="folders"></div>
-    <div class="waveband" id="waves"></div>
     <div class="toolbar">
       <div class="count-line" id="count-line"></div>
       <div class="sorts" id="sorts"></div>
+      <button type="button" class="ghost wide keys-btn" data-act="filters" id="filters-btn" data-i18n="filters">فیلتر</button>
+      <button type="button" class="ghost wide keys-btn" data-act="near" data-i18n="near">نزدیک</button>
+      <button type="button" class="ghost wide keys-btn" data-act="theme" id="theme-btn" data-i18n="theme">تم</button>
+      <button type="button" class="ghost wide keys-btn" data-act="install" id="install-btn" hidden data-i18n="install">نصب</button>
       <button type="button" class="ghost wide keys-btn" data-act="hd" id="hd-btn">HD</button>
       <button type="button" class="ghost wide keys-btn" data-act="scan" data-i18n="scan">اسکن</button>
       <button type="button" class="ghost wide keys-btn" data-act="stand" data-i18n="stand">ساعت</button>
       <button type="button" class="ghost wide keys-btn" data-act="map" data-i18n="map">نقشه</button>
       <button type="button" class="ghost wide keys-btn" data-act="car" data-i18n="car">ماشین</button>
       <button type="button" class="ghost wide keys-btn" data-act="help" data-i18n="keys">کلیدها</button>
+    </div>
+    <div id="filters" class="filters" hidden>
+      <div class="countries" id="genres"></div>
+      <div class="countries" id="langs"></div>
+      <div class="countries" id="bands"></div>
+      <div class="folders" id="folders"></div>
+      <div class="waveband" id="waves"></div>
     </div>
 
     <main class="list" id="list"></main>
@@ -325,12 +331,11 @@
     <div id="loader">
       <img src="./assets/icon-192.png" width="92" height="92" alt="" />
       <div class="word" dir="ltr">FREQ</div>
-      <div id="load-sub" data-i18n="loading">لامپ‌ها گرم می‌شوند…</div>
+      <div id="load-sub" data-i18n="loading">در حال اتصال…</div>
     </div>
 
     <audio id="audio"></audio>
-    <script src="./i18n.js?v=7"></script>
-    <script src="./app.js?v=7"></script>
+    <script src="./i18n.js?v=8"></script>
+    <script src="./app.js?v=8"></script>
   </body>
 </html>
-/html>

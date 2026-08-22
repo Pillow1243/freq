@@ -99,6 +99,11 @@ window.I18N = {
     trending: "ترند",
     seeall: "همه",
     home: "خانه",
+    genres: "سبک‌ها",
+    moods: "حال‌وهوا",
+    clear: "پاک کردن",
+    band: "باند",
+    browse: "کاوش سبک",
   },
   en: {
     dir: "ltr",
@@ -200,5 +205,10 @@ window.I18N = {
     trending: "Trending",
     seeall: "See all",
     home: "Home",
+    genres: "Genres",
+    moods: "Moods",
+    clear: "Clear",
+    band: "Band",
+    browse: "Browse genres",
   },
 };

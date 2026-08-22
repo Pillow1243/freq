@@ -31,23 +31,38 @@
     { cc: "CA", fa: "کانادا", en: "Canada" },
   ];
   const GENRES = [
-    { tag: "", fa: "همهٔ سبک‌ها", en: "All genres" },
-    { tag: "pop", fa: "پاپ", en: "Pop" },
-    { tag: "rock", fa: "راک", en: "Rock" },
-    { tag: "jazz", fa: "جاز", en: "Jazz" },
-    { tag: "classical", fa: "کلاسیک", en: "Classical" },
-    { tag: "electronic", fa: "الکترونیک", en: "Electronic" },
-    { tag: "dance", fa: "دنس", en: "Dance" },
-    { tag: "hip hop", fa: "هیپ‌هاپ", en: "Hip hop" },
-    { tag: "metal", fa: "متال", en: "Metal" },
-    { tag: "news", fa: "خبر", en: "News" },
-    { tag: "talk", fa: "گفت‌وگو", en: "Talk" },
-    { tag: "oldies", fa: "قدیمی", en: "Oldies" },
-    { tag: "80s", fa: "دهه ۸۰", en: "80s" },
-    { tag: "chillout", fa: "چیل", en: "Chill" },
-    { tag: "persian", fa: "پارسی", en: "Persian" },
-    { tag: "folk", fa: "فولک", en: "Folk" },
-    { tag: "reggae", fa: "رگه", en: "Reggae" },
+    { tag: "", fa: "همه", en: "All", ico: "✦", hue: 220 },
+    { tag: "pop", fa: "پاپ", en: "Pop", ico: "✨", hue: 312 },
+    { tag: "rock", fa: "راک", en: "Rock", ico: "🎸", hue: 8 },
+    { tag: "jazz", fa: "جاز", en: "Jazz", ico: "🎷", hue: 38 },
+    { tag: "classical", fa: "کلاسیک", en: "Classical", ico: "🎻", hue: 268 },
+    { tag: "electronic", fa: "الکترونیک", en: "Electronic", ico: "⚡", hue: 188 },
+    { tag: "dance", fa: "دنس", en: "Dance", ico: "🪩", hue: 292 },
+    { tag: "hip hop", fa: "هیپ‌هاپ", en: "Hip hop", ico: "🎤", hue: 28 },
+    { tag: "rap", fa: "رپ", en: "Rap", ico: "💥", hue: 16 },
+    { tag: "metal", fa: "متال", en: "Metal", ico: "🤘", hue: 350 },
+    { tag: "news", fa: "خبر", en: "News", ico: "📰", hue: 206 },
+    { tag: "talk", fa: "گفت‌وگو", en: "Talk", ico: "🎙️", hue: 198 },
+    { tag: "sports", fa: "ورزش", en: "Sports", ico: "⚽", hue: 142 },
+    { tag: "oldies", fa: "قدیمی", en: "Oldies", ico: "📻", hue: 24 },
+    { tag: "80s", fa: "دهه ۸۰", en: "80s", ico: "📼", hue: 322 },
+    { tag: "chillout", fa: "چیل", en: "Chill", ico: "🌙", hue: 222 },
+    { tag: "lofi", fa: "لوفای", en: "Lo-fi", ico: "🎧", hue: 248 },
+    { tag: "persian", fa: "پارسی", en: "Persian", ico: "🌸", hue: 336 },
+    { tag: "arabic", fa: "عربی", en: "Arabic", ico: "☾", hue: 168 },
+    { tag: "folk", fa: "فولک", en: "Folk", ico: "🪕", hue: 32 },
+    { tag: "reggae", fa: "رگه", en: "Reggae", ico: "🌴", hue: 128 },
+    { tag: "latin", fa: "لاتین", en: "Latin", ico: "💃", hue: 352 },
+    { tag: "blues", fa: "بلوز", en: "Blues", ico: "💙", hue: 214 },
+    { tag: "country", fa: "کانتری", en: "Country", ico: "🤠", hue: 22 },
+    { tag: "house", fa: "هاوس", en: "House", ico: "🏠", hue: 182 },
+    { tag: "techno", fa: "تکنو", en: "Techno", ico: "🔊", hue: 262 },
+    { tag: "soul", fa: "سول", en: "Soul", ico: "💜", hue: 280 },
+    { tag: "disco", fa: "دیسکو", en: "Disco", ico: "🕺", hue: 300 },
+    { tag: "ambient", fa: "امبینت", en: "Ambient", ico: "🌌", hue: 230 },
+    { tag: "indie", fa: "ایندی", en: "Indie", ico: "🌻", hue: 48 },
+    { tag: "funk", fa: "فانک", en: "Funk", ico: "😎", hue: 44 },
+    { tag: "k-pop", fa: "کی‌پاپ", en: "K-pop", ico: "💫", hue: 318 },
   ];
   const LANGS = [
     { id: "", fa: "همهٔ زبان‌ها", en: "All languages" },
@@ -180,6 +195,7 @@
     tickClock();
     applyTheme();
     syncFiltersBtn();
+    syncClearBtn();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
@@ -324,11 +340,88 @@
   }
 
   function renderGenres() {
-    $("genres").innerHTML = GENRES.map((g) => {
+    const box = $("genres");
+    if (!box) return;
+    box.innerHTML = GENRES.map((g) => {
       const on = state.mode === "browse" && g.tag === state.tag ? "on" : "";
       const label = state.lang === "fa" ? g.fa : g.en;
-      return `<button type="button" class="${on}" data-tag="${g.tag}">${label}</button>`;
+      const ico = g.ico ? `<span class="gico" aria-hidden="true">${g.ico}</span>` : "";
+      return `<button type="button" class="gchip ${on}" data-tag="${g.tag}" style="--gh:${g.hue || 220}">${ico}${label}</button>`;
     }).join("");
+    syncClearBtn();
+  }
+  function genreByTag(tag) {
+    return GENRES.find((g) => g.tag === tag) || null;
+  }
+  function mosaicHtml() {
+    return `<section class="mosaic-sec">
+      <div class="rail-top"><h3>${esc(t("browse"))}</h3></div>
+      <div class="mosaic">${GENRES.filter((g) => g.tag).map((g) => {
+        const label = state.lang === "fa" ? g.fa : g.en;
+        return `<button type="button" class="mosaic-tile" data-gtag="${esc(g.tag)}" style="--gh:${g.hue}">
+          <span class="gico">${g.ico || ""}</span><span>${esc(label)}</span>
+        </button>`;
+      }).join("")}</div>
+    </section>`;
+  }
+  function genreHeroHtml() {
+    const g = genreByTag(state.tag);
+    if (!g || !g.tag) return "";
+    const label = state.lang === "fa" ? g.fa : g.en;
+    const cfn = dict().count;
+    const n = state.stations.length;
+    const cnt = typeof cfn === "function" ? cfn(n) : String(n);
+    return `<section class="genre-hero" style="--gh:${g.hue}">
+      <div class="gh-ico">${g.ico || ""}</div>
+      <div class="gh-txt"><h2>${esc(label)}</h2><p>${esc(cnt)}</p></div>
+    </section>`;
+  }
+  function hasActiveFilters() {
+    return !!(
+      state.tag ||
+      state.cc ||
+      state.langFilter ||
+      (state.q && state.q.trim()) ||
+      state.band ||
+      state.mode === "fav" ||
+      state.mode === "recent" ||
+      state.mode === "folder"
+    );
+  }
+  function syncClearBtn() {
+    const b = $("clear-btn");
+    if (b) b.hidden = !hasActiveFilters();
+    const fb = $("filters-btn");
+    if (fb) {
+      const n = [state.langFilter, state.hd, state.wave && state.wave !== "fm", state.band].filter(Boolean).length;
+      fb.textContent = n ? t("filters") + " · " + n : t("filters");
+    }
+  }
+  function setGenre(tag) {
+    state.mode = "browse";
+    state.tag = state.tag === tag ? "" : tag || "";
+    state.band = state.tag;
+    state.homeAll = !!state.tag;
+    renderGenres();
+    renderBands();
+    loadStations().catch(() => {});
+  }
+  function clearFilters() {
+    state.mode = "browse";
+    state.tag = "";
+    state.cc = "";
+    state.langFilter = "";
+    state.q = "";
+    state.band = "";
+    state.folderId = "";
+    state.homeAll = false;
+    if ($("q")) $("q").value = "";
+    renderGenres();
+    renderCountries();
+    renderLangs();
+    renderBands();
+    renderFolders();
+    loadStations().catch(() => {});
   }
   function renderLangs() {
     $("langs").innerHTML = LANGS.map((g) => {
@@ -1748,10 +1841,7 @@
     $("genres").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-tag]");
       if (!btn) return;
-      state.mode = "browse";
-      state.tag = btn.dataset.tag;
-      state.homeAll = true;
-      loadStations().catch(() => {});
+      setGenre(btn.dataset.tag);
     });
     const waves = $("waves");
     if (waves) {
@@ -1816,6 +1906,13 @@
     $("list").addEventListener("click", (e) => {
       if (e.target.closest("#more")) {
         loadStations(true).catch(() => {});
+        return;
+      }
+      const gtile = e.target.closest("[data-gtag]");
+      if (gtile) {
+        setGenre(gtile.dataset.gtag);
+        const L = $("list");
+        if (L) L.scrollTop = 0;
         return;
       }
       const info = e.target.closest("[data-info]");
@@ -1917,6 +2014,7 @@
       else if (act === "newfolder") newFolder();
       else if (act === "addfolder") addToFolder();
       else if (act === "filters") toggleFilters();
+      else if (act === "clearf") clearFilters();
       else if (act === "near") goNear();
       else if (act === "theme") cycleTheme();
       else if (act === "seeall") { state.homeAll = true; renderList(); const L=$("list"); if(L) L.scrollTop=0; }

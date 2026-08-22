@@ -33,7 +33,7 @@ svg { display: block; width: 20px; height: 20px; fill: currentColor; }
 }
 .grain { display: none; }
 
-.top, .countries, .list, .player, .credit, .toolbar, .waveband { position: relative; z-index: 2; }
+.top, .countries, .list, .player, .credit, .toolbar, .waveband, .gstrip, .filters { position: relative; z-index: 2; }
 .top { display: flex; align-items: center; gap: 12px; padding: 16px 18px 8px; }
 .brand {
   display: flex; gap: 10px; align-items: center;
@@ -127,7 +127,7 @@ html[data-theme="light"] body {
 html[data-theme="oled"] body { background: #000; }
 
 .list {
-  height: calc(100dvh - 220px);
+  height: calc(100dvh - 268px);
   overflow: auto;
   padding: 0 18px 190px;
   display: grid;
@@ -491,12 +491,100 @@ body.stand-on .stage, body.stand-on .folders { visibility: hidden; pointer-event
   .eq i, .stage-eq i, .led, .vu i { animation: none !important; }
 }
 @media (max-width: 720px) {
-  .list { grid-template-columns: 1fr; height: calc(100dvh - 250px); }
+  .list { grid-template-columns: 1fr; height: calc(100dvh - 308px); }
   .hide-sm { display: none; }
   .player { inset-inline: 10px; bottom: 18px; }
   .play { width: 46px; height: 46px; }
   .vinyl.big { --sz: min(58vw, 200px); }
 }
+
+.countries, .gstrip .genres, .rail-row { scrollbar-width: none; }
+.countries::-webkit-scrollbar, .gstrip .genres::-webkit-scrollbar, .rail-row::-webkit-scrollbar { display: none; }
+
+.gstrip { padding: 0 0 2px; }
+#genres { padding-top: 0; }
+.gchip {
+  --gh: 220;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid hsl(var(--gh) 70% 55% / 0.28) !important;
+  background: hsl(var(--gh) 78% 52% / 0.14) !important;
+  color: var(--text) !important;
+  border-radius: 999px;
+  padding: 8px 13px !important;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform .15s ease, background .2s, box-shadow .2s, border-color .2s;
+}
+.gchip .gico { font-size: 14px; line-height: 1; }
+.gchip:hover { transform: translateY(-1px); border-color: hsl(var(--gh) 80% 58% / 0.7) !important; }
+.gchip.on {
+  background: hsl(var(--gh) 82% 48%) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  box-shadow: 0 8px 20px hsl(var(--gh) 82% 48% / 0.38);
+}
+html[data-theme="light"] .gchip { color: #18181b !important; }
+html[data-theme="light"] .gchip.on { color: #fff !important; }
+
+.filter-lab {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 8px 20px 2px;
+  text-transform: uppercase;
+}
+#clear-btn { color: var(--acc); border-color: rgba(255,77,46,0.4); }
+#clear-btn:hover { background: rgba(255,77,46,0.12); }
+
+.mosaic-sec, .genre-hero { grid-column: 1 / -1; }
+.mosaic {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mosaic-tile {
+  --gh: 220;
+  height: 76px;
+  border: 0;
+  border-radius: 18px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+  text-align: start;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background:
+    linear-gradient(145deg, hsl(var(--gh) 86% 52%) 0%, hsl(calc(var(--gh) + 22) 72% 34%) 100%);
+  box-shadow: 0 10px 24px hsl(var(--gh) 70% 30% / 0.28);
+  cursor: pointer;
+  transition: transform .15s ease, filter .15s;
+}
+.mosaic-tile:hover { transform: translateY(-2px) scale(1.015); filter: brightness(1.06); }
+.mosaic-tile:active { transform: scale(0.98); }
+.mosaic-tile .gico { font-size: 20px; line-height: 1; }
+
+.genre-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 2px 0 8px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  background:
+    linear-gradient(120deg, hsl(var(--gh) 82% 46% / 0.92), hsl(calc(var(--gh) + 28) 70% 32% / 0.88));
+  color: #fff;
+  box-shadow: 0 16px 36px hsl(var(--gh) 70% 28% / 0.28);
+}
+.genre-hero .gh-ico { font-size: 36px; line-height: 1; }
+.genre-hero h2 { font-size: clamp(22px, 4vw, 30px); font-weight: 800; line-height: 1.15; }
+.genre-hero p { opacity: 0.86; font-size: 13px; margin-top: 4px; font-family: var(--mono); }
 
 html[dir="rtl"] .p-ctrls .ghost[data-act="prev"] svg,
 html[dir="rtl"] .p-ctrls .ghost[data-act="next"] svg,

@@ -977,7 +977,69 @@
     b.classList.toggle("on", !!state.sleepMin);
   }
 
+  const layers = [];
+  let ignorePop = 0;
+  function pushLayer(id) {
+    if (layers[layers.length - 1] === id) return;
+    layers.push(id);
+    try { history.pushState({ layer: id }, ""); } catch (_) {}
+  }
+  function dropLayer(id, fromPop) {
+    const i = layers.lastIndexOf(id);
+    if (i >= 0) layers.splice(i, 1);
+    if (!fromPop) {
+      try {
+        if (history.state && history.state.layer === id) {
+          ignorePop += 1;
+          history.back();
+        }
+      } catch (_) {}
+    }
+  }
+  function consumeBack() {
+    const id = layers[layers.length - 1];
+    if (!id) return false;
+    if (id === "stage") closeStage(true);
+    else if (id === "sheet") closeSheet(true);
+    else if (id === "filters") closeFilters(true);
+    else if (id === "settings") closeSettings(true);
+    else if (id === "about") closeAbout(true);
+    else if (id === "help") closeHelp(true);
+    else if (id === "stand") closeStand(true);
+    else if (id === "map") closeMap(true);
+    else if (id === "car") closeCar(true);
+    else if (id === "themes") closeThemes(true);
+    else if (id === "wrap") closeWrap(true);
+    else dropLayer(id, true);
+    return true;
+  }
+  function bindBack() {
+    try { history.scrollRestoration = "manual"; } catch (_) {}
+    addEventListener("popstate", () => {
+      if (ignorePop) { ignorePop -= 1; return; }
+      consumeBack();
+    });
+    document.addEventListener("backbutton", (e) => {
+      if (consumeBack()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
+    addEventListener("keydown", (e) => {
+      if (e.keyCode === 4 && consumeBack()) e.preventDefault();
+    });
+    window.AndroidBack = consumeBack;
+    window.onBackPressed = consumeBack;
+    try {
+      if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
+        Capacitor.Plugins.App.addListener("backButton", () => {
+          if (!consumeBack() && Capacitor.Plugins.App.exitApp) Capacitor.Plugins.App.exitApp();
+        });
+      }
+    } catch (_) {}
+  }
   function openStage() {
+    const was = !!state.stageOpen;
     state.stageOpen = true;
     const stage = $("stage");
     if (stage) {
@@ -986,8 +1048,10 @@
     }
     document.body.classList.add("stage-open");
     renderPlayer();
+    if (!was) pushLayer("stage");
   }
-  function closeStage() {
+  function closeStage(fromPop) {
+    const was = !!state.stageOpen;
     state.stageOpen = false;
     const stage = $("stage");
     if (stage) {
@@ -996,6 +1060,7 @@
     }
     document.body.classList.remove("stage-open");
     renderPlayer();
+    if (was) dropLayer("stage", fromPop);
   }
 
 
@@ -1261,13 +1326,27 @@
     };
     reader.readAsText(file);
   }
-  function openHelp() {
-    const el = $("help");
+  function openAbout() {
+    const el = $("about");
+    if (el && el.hidden) pushLayer("about");
     if (el) el.hidden = false;
   }
-  function closeHelp() {
-    const el = $("help");
+  function closeAbout(fromPop) {
+    const el = $("about");
+    const was = el && !el.hidden;
     if (el) el.hidden = true;
+    if (was) dropLayer("about", fromPop);
+  }
+  function openHelp() {
+    const el = $("help");
+    if (el && el.hidden) pushLayer("help");
+    if (el) el.hidden = false;
+  }
+  function closeHelp(fromPop) {
+    const el = $("help");
+    const was = el && !el.hidden;
+    if (el) el.hidden = true;
+    if (was) dropLayer("help", fromPop);
   }
   function setRds(s) {
     const tags = s && s.tags ? String(s.tags).split(",").filter(Boolean).slice(0, 8).join("  ·  ") : "";
@@ -1331,7 +1410,7 @@
     });
     renderList();
     toast(t("hidden"));
-    if ($("sheet")) $("sheet").hidden = true;
+    closeSheet();
   }
   function startScan() {
     if (state.scanning) {
@@ -1402,17 +1481,21 @@
     toast(t("snooze"));
   }
   function openStand() {
+    const was = !!state.night;
     state.night = true;
     const el = $("stand");
     if (el) el.hidden = false;
     document.body.classList.add("stand-on");
     tickStand();
+    if (!was) pushLayer("stand");
   }
-  function closeStand() {
+  function closeStand(fromPop) {
+    const was = !!state.night;
     state.night = false;
     const el = $("stand");
     if (el) el.hidden = true;
     document.body.classList.remove("stand-on");
+    if (was) dropLayer("stand", fromPop);
   }
   function toggleStand() {
     if (state.night) closeStand();
@@ -1529,16 +1612,20 @@
     if (state.mapOpen) closeMap();
     else openMap();
   }
-  function closeMap() {
+  function closeMap(fromPop) {
+    const was = !!state.mapOpen;
     state.mapOpen = false;
     const el = $("map");
     if (el) el.hidden = true;
+    if (was) dropLayer("map", fromPop);
   }
   async function openMap() {
+    const was = !!state.mapOpen;
     state.mapOpen = true;
     closeCar();
     const el = $("map");
     if (el) el.hidden = false;
+    if (!was) pushLayer("map");
     await loadMapPts();
     drawMap();
   }
@@ -1623,16 +1710,20 @@
     else openCar();
   }
   function openCar() {
+    const was = !!state.carOpen;
     state.carOpen = true;
     closeMap();
     const el = $("car");
     if (el) el.hidden = false;
     renderPlayer();
+    if (!was) pushLayer("car");
   }
-  function closeCar() {
+  function closeCar(fromPop) {
+    const was = !!state.carOpen;
     state.carOpen = false;
     const el = $("car");
     if (el) el.hidden = true;
+    if (was) dropLayer("car", fromPop);
   }
 
 
@@ -1703,16 +1794,19 @@
   }
   function openThemes() {
     const el = $("themes");
+    if (el && el.hidden) pushLayer("themes");
     if (el) el.hidden = false;
     const b = $("theme-btn");
     if (b) b.classList.add("on");
     renderThemeGrid();
   }
-  function closeThemes() {
+  function closeThemes(fromPop) {
     const el = $("themes");
+    const was = el && !el.hidden;
     if (el) el.hidden = true;
     const b = $("theme-btn");
     if (b) b.classList.remove("on");
+    if (was) dropLayer("themes", fromPop);
   }
   function toggleThemes() {
     const el = $("themes");
@@ -1820,29 +1914,42 @@
     if (b) b.classList.toggle("on", !!state.filtersOpen);
     if (box) box.hidden = !state.filtersOpen;
   }
-  function closeFilters() {
+  function closeFilters(fromPop) {
+    const was = !!state.filtersOpen;
     state.filtersOpen = false;
     syncFiltersBtn();
+    if (was) dropLayer("filters", fromPop);
   }
   function toggleFilters() {
-    if (!state.filtersOpen) closeSettings();
-    state.filtersOpen = !state.filtersOpen;
+    if (state.filtersOpen) {
+      closeFilters();
+      return;
+    }
+    closeSettings();
+    state.filtersOpen = true;
     syncFiltersBtn();
+    pushLayer("filters");
   }
-  function closeSettings() {
+  function closeSettings(fromPop) {
     const el = $("settings");
+    const was = el && !el.hidden;
     if (el) el.hidden = true;
     const b = $("settings-btn");
     if (b) b.classList.remove("on");
+    if (was) dropLayer("settings", fromPop);
   }
   function toggleSettings() {
     const el = $("settings");
     if (!el) return;
-    const open = el.hidden;
-    if (open) closeFilters();
-    el.hidden = !open;
+    if (!el.hidden) {
+      closeSettings();
+      return;
+    }
+    closeFilters();
+    el.hidden = false;
     const b = $("settings-btn");
-    if (b) b.classList.toggle("on", open);
+    if (b) b.classList.add("on");
+    pushLayer("settings");
   }
   async function loadDiscover() {
     const bag = {};
@@ -2102,9 +2209,17 @@
       (state.current && state.current.stationuuid === id ? state.current : null)
     );
   }
+  function closeSheet(fromPop) {
+    const el = $("sheet");
+    const was = el && !el.hidden;
+    if (el) el.hidden = true;
+    if (was) dropLayer("sheet", fromPop);
+  }
   function openSheet(s) {
     state.sheet = s;
-    $("sheet").hidden = false;
+    const el = $("sheet");
+    if (el && el.hidden) pushLayer("sheet");
+    el.hidden = false;
     $("sh-name").textContent = s.name || "—";
     $("sh-meta").textContent = [
       flag(s.countrycode),
@@ -2123,6 +2238,7 @@
   }
 
   function bind() {
+    bindBack();
     document.querySelectorAll("[data-lang]").forEach((b) => {
       b.addEventListener("click", () => setLang(b.dataset.lang));
     });
@@ -2252,9 +2368,7 @@
         }
       }
     });
-    $("sheet-x").addEventListener("click", () => {
-      $("sheet").hidden = true;
-    });
+    $("sheet-x").addEventListener("click", () => closeSheet());
     $("sh-play").addEventListener("click", () => {
       if (state.sheet) play(state.sheet);
     });
@@ -2297,7 +2411,7 @@
       state.tag = tag.trim();
       state.q = "";
       $("q").value = "";
-      $("sheet").hidden = true;
+      closeSheet();
       loadStations().catch(() => {});
     });
 
@@ -2492,6 +2606,7 @@
         toggle();
       }
       if (e.key === "Escape") {
+        if (consumeBack()) return;
         closeStage();
         closeHelp();
         closeStand();
@@ -2499,6 +2614,10 @@
         closeCar();
         closeThemes();
         closeWrap();
+        closeFilters();
+        closeSettings();
+        closeSheet();
+        closeAbout();
       }
       if (e.key === "n" || e.key === "N") playRel(1);
       if (e.key === "p" || e.key === "P") playRel(-1);

@@ -84,9 +84,9 @@ img { display: block; max-width: 100%; }
   border-radius: 999px; width: 42px; height: 42px; font-size: 18px;
 }
 .list {
-  height: calc(100dvh - 250px);
+  height: calc(100dvh - 300px);
   overflow: auto;
-  padding: 0 18px 18px;
+  padding: 0 18px 110px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
@@ -98,6 +98,9 @@ img { display: block; max-width: 100%; }
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 16px; padding: 10px 12px;
   backdrop-filter: blur(14px);
+}
+.card-hit {
+  flex: 1; min-width: 0; background: none; border: 0; color: inherit; text-align: start;
 }
 .card.on { border-color: var(--mag); box-shadow: 0 0 24px rgba(255,43,214,0.18); }
 .card img, .ph {

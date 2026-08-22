@@ -49,12 +49,24 @@
     { tag: "folk", fa: "فولک", en: "Folk" },
     { tag: "reggae", fa: "رگه", en: "Reggae" },
   ];
+  const LANGS = [
+    { id: "", fa: "همهٔ زبان‌ها", en: "All languages" },
+    { id: "persian", fa: "فارسی", en: "Persian" },
+    { id: "english", fa: "انگلیسی", en: "English" },
+    { id: "german", fa: "آلمانی", en: "German" },
+    { id: "french", fa: "فرانسوی", en: "French" },
+    { id: "arabic", fa: "عربی", en: "Arabic" },
+    { id: "turkish", fa: "ترکی", en: "Turkish" },
+    { id: "spanish", fa: "اسپانیایی", en: "Spanish" },
+    { id: "russian", fa: "روسی", en: "Russian" },
+  ];
 
   const state = {
     lang: localStorage.getItem("freq-lang") || "fa",
     host: HOSTS[0],
     cc: "",
     tag: "",
+    langFilter: "",
     q: "",
     sort: localStorage.getItem("freq-sort") || "clickcount",
     offset: 0,
@@ -104,6 +116,7 @@
     });
     renderCountries();
     renderGenres();
+    renderLangs();
     renderSorts();
     renderSleep();
     renderList();
@@ -179,14 +192,24 @@
       });
       if (state.cc) p.set("countrycode", state.cc);
       if (state.tag) p.set("tag", state.tag);
+      if (state.langFilter) p.set("language", state.langFilter);
       if (state.q.trim()) p.set("name", state.q.trim());
-      const data = await getJSON(`/json/stations/search?${p}`);
+      let data = await getJSON(`/json/stations/search?${p}`);
+      if (state.q.trim() && (!data || data.length < 12) && !append) {
+        const p2 = new URLSearchParams(p);
+        p2.delete("name");
+        p2.set("tag", state.q.trim());
+        const extra = await getJSON(`/json/stations/search?${p2}`).catch(() => []);
+        const seen = new Set((data || []).map((s) => s.stationuuid));
+        data = (data || []).concat((extra || []).filter((s) => !seen.has(s.stationuuid)));
+      }
       const list = (data || []).filter((s) => (s.url_resolved || s.url || "").startsWith("https://"));
       state.stations = append ? state.stations.concat(list) : list;
       state.hasMore = (data || []).length >= PAGE;
       state.offset += PAGE;
       renderCountries();
       renderGenres();
+      renderLangs();
       renderList();
     } finally {
       state.loadingMore = false;
@@ -213,6 +236,17 @@
       const label = state.lang === "fa" ? g.fa : g.en;
       return `<button type="button" class="${on}" data-tag="${g.tag}">${label}</button>`;
     }).join("");
+  }
+  function renderLangs() {
+    $("langs").innerHTML = LANGS.map((g) => {
+      const on = state.mode === "browse" && g.id === state.langFilter ? "on" : "";
+      const label = state.lang === "fa" ? g.fa : g.en;
+      return `<button type="button" class="${on}" data-langf="${g.id}">${label}</button>`;
+    }).join("");
+  }
+  function flag(cc) {
+    if (!cc || cc.length !== 2) return "";
+    return [...cc.toUpperCase()].map((c) => String.fromCodePoint(127397 + c.charCodeAt(0))).join("");
   }
 
   function renderSorts() {
@@ -249,14 +283,16 @@
         const ico = s.favicon
           ? `<img src="${s.favicon}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=ph></div>'">`
           : `<div class="ph"></div>`;
-        const tags = (s.tags || "").split(",").filter(Boolean).slice(0, 3).join(" · ");
-        return `<button class="card ${on}" type="button" data-id="${s.stationuuid}">
+        const tags = (s.tags || "").split(",").filter(Boolean).slice(0, 2).join(" · ");
+        const fl = flag(s.countrycode);
+        return `<div class="card ${on}" data-id="${s.stationuuid}">
           ${ico}
-          <div>
-            <div class="nm">${s.name || "—"}</div>
-            <div class="meta">${s.country || s.countrycode || ""} ${tags ? "· " + tags : ""}</div>
-          </div>
-        </button>`;
+          <button type="button" class="card-hit" data-play="${s.stationuuid}">
+            <div class="nm">${fl ? fl + " " : ""}${s.name || "—"}</div>
+            <div class="meta">${s.country || ""} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + tags : ""}</div>
+          </button>
+          <button type="button" class="info" data-info="${s.stationuuid}">i</button>
+        </div>`;
       })
       .join("");
     const more = state.hasMore ? `<button id="more" class="more" type="button">${t("more")}</button>` : "";
@@ -366,7 +402,7 @@
         state.playing = true;
         state.status = "";
         renderPlayer();
-      }).catch(() => playRel(1));
+      }).catch(() => failSkip());
     }
     renderPlayer();
   }
@@ -447,6 +483,13 @@
       state.tag = btn.dataset.tag;
       loadStations().catch(() => {});
     });
+    $("langs").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-langf]");
+      if (!btn) return;
+      state.mode = "browse";
+      state.langFilter = btn.dataset.langf;
+      loadStations().catch(() => {});
+    });
     $("sorts").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-sort]");
       if (!btn) return;
@@ -466,9 +509,16 @@
         loadStations(true).catch(() => {});
         return;
       }
-      const btn = e.target.closest("[data-id]");
-      if (!btn) return;
-      const s = state.stations.find((x) => x.stationuuid === btn.dataset.id);
+      const info = e.target.closest("[data-info]");
+      if (info) {
+        const s = findStation(info.dataset.info);
+        if (s) openSheet(s);
+        return;
+      }
+      const hit = e.target.closest("[data-play], [data-id]");
+      if (!hit) return;
+      const id = hit.dataset.play || hit.dataset.id;
+      const s = findStation(id);
       if (s) play(s);
     });
     $("list").addEventListener("scroll", () => {
@@ -479,13 +529,52 @@
         }
       }
     });
-    $("p-toggle").addEventListener("click", toggle);
+    function findStation(id) {
+    return (
+      state.stations.find((x) => x.stationuuid === id) ||
+      state.favs.find((x) => x.stationuuid === id) ||
+      state.recents.find((x) => x.stationuuid === id) ||
+      (state.current && state.current.stationuuid === id ? state.current : null)
+    );
+  }
+  function openSheet(s) {
+    state.sheet = s;
+    $("sheet").hidden = false;
+    $("sh-name").textContent = s.name || "—";
+    $("sh-meta").textContent = [flag(s.countrycode), s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : "", s.votes != null ? t("votes") + " " + s.votes : ""]
+      .filter(Boolean)
+      .join(" · ");
+    $("sh-tags").textContent = (s.tags || "").split(",").filter(Boolean).slice(0, 8).join(" · ");
+    if (s.favicon) $("sh-ico").src = s.favicon;
+    const home = s.homepage && /^https?:/i.test(s.homepage) ? s.homepage : "";
+    $("sh-home").hidden = !home;
+    if (home) $("sh-home").href = home;
+  }
+  $("sheet-x").addEventListener("click", () => {
+    $("sheet").hidden = true;
+  });
+  $("sh-play").addEventListener("click", () => {
+    if (state.sheet) play(state.sheet);
+  });
+  $("sh-similar").addEventListener("click", () => {
+    const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0];
+    if (!tag) return;
+    state.mode = "browse";
+    state.tag = tag.trim();
+    state.q = "";
+    $("q").value = "";
+    $("sheet").hidden = true;
+    loadStations().catch(() => {});
+  });
+  $("p-toggle").addEventListener("click", toggle);
     $("p-fav").addEventListener("click", () => toggleFav(state.current));
     $("p-next").addEventListener("click", () => playRel(1));
     $("p-prev").addEventListener("click", () => playRel(-1));
     $("p-rand").addEventListener("click", playRandom);
     $("vol").addEventListener("input", (e) => {
-      $("audio").volume = Number(e.target.value);
+      const v = Number(e.target.value);
+      $("audio").volume = v;
+      localStorage.setItem("freq-vol", String(v));
     });
     $("sleep").addEventListener("change", (e) => {
       const m = Number(e.target.value);
@@ -538,7 +627,9 @@
     applyI18n();
     bind();
     viz();
-    $("audio").volume = 0.85;
+    const vol = Number(localStorage.getItem("freq-vol") || "0.85");
+    $("audio").volume = vol;
+    $("vol").value = String(vol);
     try {
       await loadStations();
       renderPlayer();

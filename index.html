@@ -45,6 +45,7 @@
 
     <div class="countries" id="countries"></div>
     <div class="countries" id="genres"></div>
+    <div class="countries" id="langs"></div>
     <div class="toolbar">
       <div class="count-line" id="count-line"></div>
       <div class="sorts" id="sorts"></div>
@@ -68,7 +69,18 @@
       <input id="vol" type="range" min="0" max="1" step="0.01" value="0.85" />
     </footer>
 
-    <div class="credit">
+    <div id="sheet" class="sheet" hidden>
+      <button id="sheet-x" type="button" data-i18n="close">بستن</button>
+      <img id="sh-ico" alt="" />
+      <h2 id="sh-name">—</h2>
+      <p id="sh-meta" class="sub"></p>
+      <p id="sh-tags" class="sub"></p>
+      <div class="sheet-actions">
+        <button id="sh-play" class="play" type="button" data-i18n="play">پخش</button>
+        <button id="sh-similar" class="ghost wide" type="button" data-i18n="similar">مشابه</button>
+        <a id="sh-home" class="ghost wide" target="_blank" rel="noopener" hidden data-i18n="homepage">سایت ایستگاه</a>
+      </div>
+    </div>
       <span data-i18n="credit">ساخته شده توسط</span> <b>مبین.آ</b>
       · <span data-i18n="source">Radio Browser</span>
     </div>

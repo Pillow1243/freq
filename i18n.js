@@ -32,6 +32,11 @@ window.I18N = {
     votes: "رأی",
     az: "الفبا",
     count: (n) => `${n} ایستگاه`,
+    info: "جزئیات",
+    similar: "مشابه",
+    homepage: "سایت ایستگاه",
+    votes: "رأی",
+    langs: "زبان",
   },
   en: {
     dir: "ltr",
@@ -66,5 +71,10 @@ window.I18N = {
     votes: "Votes",
     az: "A–Z",
     count: (n) => `${n} stations`,
+    info: "Details",
+    similar: "Similar",
+    homepage: "Station site",
+    votes: "Votes",
+    langs: "Language",
   },
 };

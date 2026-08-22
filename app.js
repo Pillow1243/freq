@@ -343,7 +343,10 @@
       renderLangs();
       renderList();
     } finally {
-      if (fetchGen === state.fetchGen) state.loadingMore = false;
+      if (fetchGen === state.fetchGen) {
+        state.loadingMore = false;
+        fillIfShort();
+      }
     }
   }
 
@@ -571,19 +574,51 @@
         railBlock(t("near"), state.nearList || []) +
         mosaicHtml()
       : "";
+    const el = $("list");
+    const keep = el ? el.scrollTop : 0;
     if (!state.stations.length && !rails) {
-      $("list").innerHTML = `<div class="card">${t("empty")}</div>`;
+      el.innerHTML = `<div class="card">${t("empty")}</div>`;
       syncClearBtn();
       return;
     }
     const cards = state.stations.map(function (s) { return stationCard(s, false); }).join("");
-    const more = state.hasMore && !isHome() ? `<button id="more" class="more" type="button">${t("more")}</button>` : "";
     const all = isHome()
       ? `<section class="rail"><div class="rail-top"><h3>${esc(t("trending"))}</h3></div></section>`
       : genreHeroHtml();
-    $("list").innerHTML = rails + all + cards + more;
+    el.innerHTML = rails + all + cards + '<div id="tail" class="tail"></div>';
+    el.scrollTop = keep;
     syncClearBtn();
     syncChrome();
+    watchTail();
+  }
+  let tailObs = null;
+  function maybeMore() {
+    if (state.mode !== "browse" || !state.hasMore || state.loadingMore) return;
+    loadStations(true).catch(function () {});
+  }
+  function fillIfShort() {
+    const el = $("list");
+    if (!el || state.mode !== "browse" || !state.hasMore || state.loadingMore) return;
+    if (el.scrollHeight <= el.clientHeight + 80) maybeMore();
+  }
+  function watchTail() {
+    const tail = $("tail");
+    const root = $("list");
+    if (!tail || !root || typeof IntersectionObserver === "undefined") {
+      fillIfShort();
+      return;
+    }
+    if (!tailObs) {
+      tailObs = new IntersectionObserver(
+        function (ents) {
+          if (ents.some(function (e) { return e.isIntersecting; })) maybeMore();
+        },
+        { root: root, rootMargin: "320px" }
+      );
+    }
+    tailObs.disconnect();
+    tailObs.observe(tail);
+    fillIfShort();
   }
 
   function esc(s) {
@@ -2173,10 +2208,6 @@
       });
     }
     $("list").addEventListener("click", (e) => {
-      if (e.target.closest("#more")) {
-        loadStations(true).catch(() => {});
-        return;
-      }
       const gtile = e.target.closest("[data-gtag]");
       if (gtile) {
         setGenre(gtile.dataset.gtag);

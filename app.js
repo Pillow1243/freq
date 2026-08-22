@@ -121,6 +121,8 @@
     forYou: [],
     nearList: [],
     homeAll: false,
+    fetchGen: 0,
+    pool: [],
   };
   function padPresets(arr) {
     const out = Array.isArray(arr) ? arr.slice(0, 6) : [];
@@ -234,7 +236,12 @@
   }
 
   async function loadStations(append) {
-    if (state.loadingMore) return;
+    if (append && state.loadingMore) return;
+    if (!append) {
+      state.fetchGen = (state.fetchGen || 0) + 1;
+      state.loadingMore = false;
+    }
+    const fetchGen = state.fetchGen;
     if (state.mode === "fav" || state.mode === "recent" || state.mode === "folder") {
       if (state.mode === "folder") {
         const f = (state.folders || []).find(function (x) { return x.id === state.folderId; });
@@ -281,6 +288,7 @@
         const seen = new Set((data || []).map((s) => s.stationuuid));
         data = (data || []).concat((extra || []).filter((s) => !seen.has(s.stationuuid)));
       }
+      if (fetchGen !== state.fetchGen) return;
       const list = (data || []).filter((s) => {
         const url = s.url_resolved || s.url || "";
         if (!url.startsWith("https://")) return false;
@@ -288,6 +296,7 @@
         return true;
       });
       state.stations = append ? state.stations.concat(list) : list;
+      remember(list);
       state.hasMore = (data || []).length >= PAGE;
       state.offset += PAGE;
       renderCountries();
@@ -295,7 +304,7 @@
       renderLangs();
       renderList();
     } finally {
-      state.loadingMore = false;
+      if (fetchGen === state.fetchGen) state.loadingMore = false;
     }
   }
 
@@ -401,25 +410,21 @@
     const n = state.stations.length;
     const cfn = dict().count;
     $("count-line").textContent = typeof cfn === "function" ? cfn(n) : String(n);
-    if (isHome()) {
-      const cont = (state.recents || []).slice(0, 10);
-      const you = (state.forYou || []).length ? state.forYou : state.stations.slice(8, 18);
-      const trend = state.stations.slice(0, 10);
-      const near = state.nearList || [];
-      $("list").innerHTML =
-        railBlock(t("continue"), cont) +
-        railBlock(t("foryou"), you) +
-        railBlock(t("near"), near) +
-        railBlock(t("trending"), trend);
-      return;
-    }
-    if (!state.stations.length) {
+    const rails = isHome()
+      ? railBlock(t("continue"), (state.recents || []).slice(0, 10)) +
+        railBlock(t("foryou"), (state.forYou || []).length ? state.forYou : []) +
+        railBlock(t("near"), state.nearList || [])
+      : "";
+    if (!state.stations.length && !rails) {
       $("list").innerHTML = `<div class="card">${t("empty")}</div>`;
       return;
     }
     const cards = state.stations.map(function (s) { return stationCard(s, false); }).join("");
-    const more = state.hasMore ? `<button id="more" class="more" type="button">${t("more")}</button>` : "";
-    $("list").innerHTML = cards + more;
+    const more = state.hasMore && !isHome() ? `<button id="more" class="more" type="button">${t("more")}</button>` : "";
+    const all = isHome()
+      ? `<section class="rail"><div class="rail-top"><h3>${esc(t("trending"))}</h3></div></section>`
+      : "";
+    $("list").innerHTML = rails + all + cards + more;
   }
 
   function esc(s) {
@@ -632,13 +637,13 @@
     state.playing = false;
     state.listenMs = 0;
     state.listenTick = 0;
+    remember(station);
     pushRecent(station);
     bumpStats(station);
-    startStatic();
     audio.pause();
-    audio.removeAttribute("src");
+    try { audio.removeAttribute("src"); } catch (_) {}
     audio.src = station.url_resolved || station.url || "";
-    audio.load();
+    try { audio.load(); } catch (_) {}
     getJSON(`/json/url/${station.stationuuid}`).catch(() => {});
     renderPlayer();
     markCurrent();
@@ -650,7 +655,6 @@
         state.fails = 0;
         state.playing = true;
         state.status = "";
-        stopStatic();
         if (state.scanning) {
           state.scanning = false;
           toast(t("tuned"));
@@ -665,27 +669,25 @@
       }).catch(() => {
         if (gen !== state.playGen) return;
         state.ignoreErr = false;
-        stopStatic();
         failSkip();
       });
     }
     setTimeout(() => {
       if (gen === state.playGen) state.ignoreErr = false;
-    }, 400);
+    }, 1600);
   }
 
   function failSkip() {
+    if (state.scanning) return;
     state.fails = (state.fails || 0) + 1;
     state.playing = false;
-    stopStatic();
     clockListen(false);
     state.status = t("failed");
     renderPlayer();
-    if (state.fails < 4) setTimeout(() => playRel(1), 500);
+    if (state.fails < 3) setTimeout(() => playRel(1), 700);
   }
 
   function playRel(dir) {
-    tickClick();
     const list = state.stations;
     if (!list.length) return;
     if (!state.current) {
@@ -803,6 +805,7 @@
     const cc = hereCC();
     state.mode = "browse";
     state.cc = cc;
+    state.homeAll = true;
     state.q = "";
     if ($("q")) $("q").value = "";
     loadStations().catch(function () {});
@@ -858,31 +861,7 @@
     else toast(t("emptyPreset"));
   }
   let noise = { ctx: null, src: null };
-  function startStatic() {
-    stopStatic();
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      const ctx = new AC();
-      const n = 2 * ctx.sampleRate;
-      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = true;
-      const f = ctx.createBiquadFilter();
-      f.type = "bandpass";
-      f.frequency.value = 1400;
-      const g = ctx.createGain();
-      g.gain.value = 0.045;
-      src.connect(f);
-      f.connect(g);
-      g.connect(ctx.destination);
-      src.start();
-      noise = { ctx: ctx, src: src };
-    } catch (_) {}
-  }
+  function startStatic() {}
   function stopStatic() {
     try {
       if (noise.src) noise.src.stop();
@@ -1237,26 +1216,7 @@
     setText("stand-st", (state.current && state.current.name) || "FREQ");
     setText("s-wx", state.weather || "");
   }
-  function tickClick() {
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      const ctx = new AC();
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "square";
-      o.frequency.value = 180;
-      g.gain.value = 0.03;
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start();
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
-      o.stop(ctx.currentTime + 0.06);
-      setTimeout(function () {
-        ctx.close();
-      }, 120);
-    } catch (_) {}
-  }
+  function tickClick() {}
   async function loadWeather() {
     let lat = 50.1109;
     let lon = 8.6821;
@@ -1490,6 +1450,7 @@
       state.forYou = (data || []).filter(function (s) {
         return (s.url_resolved || s.url || "").startsWith("https://");
       });
+      remember(state.forYou);
       if (isHome()) renderList();
     } catch (_) {}
   }
@@ -1518,13 +1479,17 @@
         return s;
       }).sort(function (a, b) { return a._d - b._d; }).slice(0, 16);
       state.nearList = list;
+      remember(list);
       if (isHome()) renderList();
     } catch (_) {}
   }
   function goNear() {
     state.mode = "browse";
-    state.homeAll = false;
+    state.homeAll = true;
+    state.cc = "";
+    state.tag = "";
     if (state.nearList && state.nearList.length) {
+      remember(state.nearList);
       state.stations = state.nearList.slice();
       state.hasMore = false;
       renderList();
@@ -1532,6 +1497,7 @@
     } else {
       loadNear().then(function () {
         if (state.nearList.length) {
+          remember(state.nearList);
           state.stations = state.nearList.slice();
           renderList();
         }
@@ -1698,11 +1664,26 @@
     frame();
   }
 
+  function remember(list) {
+    const extra = Array.isArray(list) ? list : list ? [list] : [];
+    const have = {};
+    (state.pool || []).forEach(function (s) {
+      if (s && s.stationuuid) have[s.stationuuid] = s;
+    });
+    extra.forEach(function (s) {
+      if (s && s.stationuuid) have[s.stationuuid] = s;
+    });
+    state.pool = Object.keys(have).slice(-400).map(function (k) { return have[k]; });
+  }
   function findStation(id) {
+    if (!id) return null;
     return (
       state.stations.find((x) => x.stationuuid === id) ||
       state.favs.find((x) => x.stationuuid === id) ||
       state.recents.find((x) => x.stationuuid === id) ||
+      (state.forYou || []).find((x) => x.stationuuid === id) ||
+      (state.nearList || []).find((x) => x.stationuuid === id) ||
+      (state.pool || []).find((x) => x.stationuuid === id) ||
       (state.presets || []).find((x) => x && x.stationuuid === id) ||
       (state.current && state.current.stationuuid === id ? state.current : null)
     );
@@ -1769,6 +1750,7 @@
       if (!btn) return;
       state.mode = "browse";
       state.tag = btn.dataset.tag;
+      state.homeAll = true;
       loadStations().catch(() => {});
     });
     const waves = $("waves");
@@ -1791,6 +1773,7 @@
         state.mode = "browse";
         state.band = btn.dataset.band || "";
         state.tag = state.band;
+        state.homeAll = true;
         loadStations().catch(function () {});
         renderBands();
       });
@@ -1800,6 +1783,7 @@
       if (!btn) return;
       state.mode = "browse";
       state.langFilter = btn.dataset.langf;
+      state.homeAll = true;
       loadStations().catch(() => {});
     });
     $("sorts").addEventListener("click", (e) => {
@@ -1849,7 +1833,7 @@
     $("list").addEventListener("scroll", () => {
       const el = $("list");
       if (el.scrollTop + el.clientHeight > el.scrollHeight - 240) {
-        if (state.hasMore && !state.loadingMore && state.mode === "browse") {
+        if (state.hasMore && !state.loadingMore && state.mode === "browse" && !isHome()) {
           loadStations(true).catch(() => {});
         }
       }
@@ -1935,7 +1919,7 @@
       else if (act === "filters") toggleFilters();
       else if (act === "near") goNear();
       else if (act === "theme") cycleTheme();
-      else if (act === "seeall") { state.homeAll = true; renderList(); }
+      else if (act === "seeall") { state.homeAll = true; renderList(); const L=$("list"); if(L) L.scrollTop=0; }
       else if (act === "install") {
         if (window._freqPrompt) {
           window._freqPrompt.prompt();
@@ -2024,7 +2008,7 @@
       renderPlayer();
     });
     $("audio").addEventListener("error", () => {
-      if (state.ignoreErr) return;
+      if (state.ignoreErr || state.scanning) return;
       failSkip();
     });
     $("about-btn").addEventListener("click", () => {
@@ -2129,7 +2113,9 @@
       loadNear().catch(function () {});
       applyTheme();
       if (navigator.serviceWorker) {
-        navigator.serviceWorker.register("./sw.js").catch(function () {});
+        navigator.serviceWorker.getRegistrations().then(function (rs) {
+          rs.forEach(function (r) { r.unregister(); });
+        }).catch(function () {});
       }
     } catch (err) {
       const line = $("count-line");

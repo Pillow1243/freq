@@ -104,6 +104,8 @@ window.I18N = {
     clear: "پاک کردن",
     band: "باند",
     browse: "کاوش سبک",
+    themes: "تم‌ها",
+    themesSub: "یه تم بزن — همون لحظه عوض می‌شه",
   },
   en: {
     dir: "ltr",
@@ -210,5 +212,7 @@ window.I18N = {
     clear: "Clear",
     band: "Band",
     browse: "Browse genres",
+    themes: "Themes",
+    themesSub: "Tap a theme — it changes instantly",
   },
 };

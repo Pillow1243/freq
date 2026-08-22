@@ -83,6 +83,28 @@
     { tag: "persian", fa: "پارسی", en: "Persian" },
     { tag: "classical", fa: "کلاسیک", en: "Classical" },
   ];
+  const THEMES = [
+    { id: "dark", fa: "اخگر", en: "Ember", light: 0, bg: "#09090b", acc: "#ff4d2e", ice: "#7dd3fc", text: "#f4f4f5", muted: "#a1a1aa", ink: "#ffffff", panel: "rgba(24,24,28,0.72)", line: "rgba(255,255,255,0.08)", player: "rgba(12,12,16,0.82)", cabinet: "rgba(18,18,22,0.9)", wash: "radial-gradient(ellipse at 50% -20%, rgba(255,77,46,0.16), transparent 42%), radial-gradient(ellipse at 90% 80%, rgba(125,211,252,0.06), transparent 40%), #09090b" },
+    { id: "oled", fa: "سیاه", en: "Void", light: 0, bg: "#000000", acc: "#ff3b30", ice: "#64d2ff", text: "#ffffff", muted: "#a3a3a3", ink: "#ffffff", panel: "rgba(18,18,18,0.82)", line: "rgba(255,255,255,0.08)", player: "rgba(10,10,10,0.9)", cabinet: "rgba(12,12,12,0.94)", wash: "#000000" },
+    { id: "light", fa: "کاغذ", en: "Paper", light: 1, bg: "#f4f4f5", acc: "#e11d48", ice: "#0284c7", text: "#18181b", muted: "#52525b", ink: "#ffffff", panel: "rgba(255,255,255,0.8)", line: "rgba(0,0,0,0.08)", player: "rgba(255,255,255,0.9)", cabinet: "rgba(255,255,255,0.94)", wash: "radial-gradient(ellipse at 50% -20%, rgba(225,29,72,0.12), transparent 42%), #f4f4f5" },
+    { id: "aurora", fa: "شفق", en: "Aurora", light: 0, bg: "#041510", acc: "#34d399", ice: "#67e8f9", text: "#ecfdf5", muted: "#86efac", ink: "#042f2e", panel: "rgba(6,36,28,0.72)", line: "rgba(110,231,183,0.16)", player: "rgba(4,24,18,0.86)", cabinet: "rgba(6,32,24,0.92)", wash: "radial-gradient(ellipse at 20% -10%, rgba(52,211,153,0.22), transparent 40%), radial-gradient(ellipse at 90% 80%, rgba(56,189,248,0.14), transparent 42%), #041510" },
+    { id: "sunset", fa: "غروب", en: "Sunset", light: 0, bg: "#1a0b12", acc: "#fb7185", ice: "#fdba74", text: "#fff1f2", muted: "#fda4af", ink: "#4c0519", panel: "rgba(48,16,28,0.72)", line: "rgba(251,113,133,0.18)", player: "rgba(28,10,16,0.88)", cabinet: "rgba(36,12,20,0.92)", wash: "radial-gradient(ellipse at 10% 0%, rgba(251,113,133,0.22), transparent 40%), radial-gradient(ellipse at 90% 100%, rgba(251,146,60,0.18), transparent 42%), #1a0b12" },
+    { id: "ocean", fa: "اقیانوس", en: "Ocean", light: 0, bg: "#071422", acc: "#38bdf8", ice: "#a5b4fc", text: "#e0f2fe", muted: "#7dd3fc", ink: "#082f49", panel: "rgba(8,28,48,0.72)", line: "rgba(56,189,248,0.16)", player: "rgba(6,18,32,0.88)", cabinet: "rgba(8,24,40,0.92)", wash: "radial-gradient(ellipse at 30% -10%, rgba(56,189,248,0.2), transparent 42%), radial-gradient(ellipse at 90% 90%, rgba(37,99,235,0.16), transparent 40%), #071422" },
+    { id: "violet", fa: "بنفش", en: "Violet", light: 0, bg: "#120818", acc: "#c084fc", ice: "#f9a8d4", text: "#fae8ff", muted: "#d8b4fe", ink: "#3b0764", panel: "rgba(36,16,52,0.72)", line: "rgba(192,132,252,0.18)", player: "rgba(22,10,32,0.88)", cabinet: "rgba(28,12,40,0.92)", wash: "radial-gradient(ellipse at 50% -10%, rgba(168,85,247,0.24), transparent 42%), radial-gradient(ellipse at 100% 80%, rgba(244,114,182,0.12), transparent 40%), #120818" },
+    { id: "lava", fa: "گدازه", en: "Lava", light: 0, bg: "#140606", acc: "#ef4444", ice: "#fb923c", text: "#fff1f2", muted: "#fca5a5", ink: "#ffffff", panel: "rgba(42,12,12,0.74)", line: "rgba(239,68,68,0.18)", player: "rgba(24,8,8,0.88)", cabinet: "rgba(32,10,10,0.92)", wash: "radial-gradient(ellipse at 50% -10%, rgba(239,68,68,0.22), transparent 40%), radial-gradient(ellipse at 80% 100%, rgba(251,146,60,0.1), transparent 42%), #140606" },
+    { id: "mint", fa: "نعنا", en: "Mint", light: 0, bg: "#071412", acc: "#2dd4bf", ice: "#99f6e4", text: "#f0fdfa", muted: "#5eead4", ink: "#042f2e", panel: "rgba(8,36,32,0.72)", line: "rgba(45,212,191,0.16)", player: "rgba(6,24,22,0.88)", cabinet: "rgba(8,30,28,0.92)", wash: "radial-gradient(ellipse at 20% 0%, rgba(45,212,191,0.2), transparent 42%), #071412" },
+    { id: "gold", fa: "طلا", en: "Gold", light: 0, bg: "#120e06", acc: "#fbbf24", ice: "#fde68a", text: "#fffbeb", muted: "#fcd34d", ink: "#1c1504", panel: "rgba(40,30,10,0.74)", line: "rgba(251,191,36,0.16)", player: "rgba(22,16,6,0.9)", cabinet: "rgba(28,20,8,0.94)", wash: "radial-gradient(ellipse at 50% -10%, rgba(250,204,21,0.16), transparent 42%), #120e06" },
+    { id: "sakura", fa: "شکوفه", en: "Sakura", light: 1, bg: "#fff1f5", acc: "#db2777", ice: "#fb7185", text: "#4a044e", muted: "#9d174d", ink: "#ffffff", panel: "rgba(255,255,255,0.78)", line: "rgba(190,24,93,0.12)", player: "rgba(255,255,255,0.9)", cabinet: "rgba(255,241,245,0.94)", wash: "radial-gradient(ellipse at 20% 0%, rgba(244,114,182,0.2), transparent 44%), #fff1f5" },
+    { id: "nord", fa: "نورد", en: "Nord", light: 0, bg: "#0e1419", acc: "#88c0d0", ice: "#81a1c1", text: "#eceff4", muted: "#9aa7b5", ink: "#0b1220", panel: "rgba(22,30,38,0.76)", line: "rgba(136,192,208,0.14)", player: "rgba(14,20,26,0.9)", cabinet: "rgba(18,26,34,0.94)", wash: "radial-gradient(ellipse at 40% -10%, rgba(136,192,208,0.16), transparent 42%), #0e1419" },
+    { id: "matrix", fa: "ماتریکس", en: "Matrix", light: 0, bg: "#020604", acc: "#22c55e", ice: "#86efac", text: "#dcfce7", muted: "#4ade80", ink: "#052e16", panel: "rgba(6,24,12,0.78)", line: "rgba(34,197,94,0.16)", player: "rgba(2,10,6,0.92)", cabinet: "rgba(4,16,8,0.95)", wash: "radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.16), transparent 40%), #020604" },
+    { id: "rose", fa: "رز", en: "Rose", light: 0, bg: "#1a0c12", acc: "#fb7185", ice: "#fda4af", text: "#fff1f2", muted: "#fecdd3", ink: "#4c0519", panel: "rgba(48,18,28,0.74)", line: "rgba(251,113,133,0.16)", player: "rgba(26,10,16,0.9)", cabinet: "rgba(34,12,20,0.94)", wash: "radial-gradient(ellipse at 30% 0%, rgba(251,113,133,0.2), transparent 42%), #1a0c12" },
+    { id: "cyber", fa: "سایبر", en: "Cyber", light: 0, bg: "#0a0612", acc: "#ec4899", ice: "#22d3ee", text: "#fdf4ff", muted: "#f9a8d4", ink: "#ffffff", panel: "rgba(24,12,36,0.76)", line: "rgba(236,72,153,0.18)", player: "rgba(12,8,22,0.9)", cabinet: "rgba(16,10,28,0.94)", wash: "radial-gradient(ellipse at 10% 0%, rgba(236,72,153,0.22), transparent 40%), radial-gradient(ellipse at 90% 100%, rgba(34,211,238,0.16), transparent 42%), #0a0612" },
+    { id: "sand", fa: "کویر", en: "Dune", light: 1, bg: "#f6efe4", acc: "#d97706", ice: "#0f766e", text: "#1c1917", muted: "#78716c", ink: "#fffbeb", panel: "rgba(255,251,245,0.82)", line: "rgba(120,53,15,0.12)", player: "rgba(255,251,245,0.92)", cabinet: "rgba(255,247,237,0.95)", wash: "radial-gradient(ellipse at 50% -10%, rgba(217,119,6,0.12), transparent 42%), #f6efe4" },
+    { id: "forest", fa: "جنگل", en: "Forest", light: 0, bg: "#07140c", acc: "#4ade80", ice: "#86efac", text: "#ecfdf5", muted: "#86efac", ink: "#052e16", panel: "rgba(10,32,18,0.74)", line: "rgba(74,222,128,0.16)", player: "rgba(6,20,12,0.9)", cabinet: "rgba(8,26,14,0.94)", wash: "radial-gradient(ellipse at 30% 0%, rgba(74,222,128,0.16), transparent 42%), #07140c" },
+    { id: "wine", fa: "شرابی", en: "Wine", light: 0, bg: "#1a0710", acc: "#e11d48", ice: "#fb7185", text: "#fff1f2", muted: "#fda4af", ink: "#ffffff", panel: "rgba(48,12,24,0.74)", line: "rgba(225,29,72,0.18)", player: "rgba(26,8,16,0.9)", cabinet: "rgba(34,10,20,0.94)", wash: "radial-gradient(ellipse at 40% 0%, rgba(190,24,93,0.2), transparent 42%), #1a0710" },
+    { id: "neon", fa: "نئون", en: "Neon", light: 0, bg: "#07070f", acc: "#a3e635", ice: "#e879f9", text: "#f7fee7", muted: "#d9f99d", ink: "#1a2e05", panel: "rgba(16,16,28,0.76)", line: "rgba(163,230,53,0.16)", player: "rgba(8,8,16,0.9)", cabinet: "rgba(12,12,22,0.94)", wash: "radial-gradient(ellipse at 15% 0%, rgba(163,230,53,0.18), transparent 40%), radial-gradient(ellipse at 90% 90%, rgba(232,121,249,0.14), transparent 42%), #07070f" },
+    { id: "midnight", fa: "نیمه‌شب", en: "Midnight", light: 0, bg: "#07081a", acc: "#818cf8", ice: "#67e8f9", text: "#eef2ff", muted: "#a5b4fc", ink: "#1e1b4b", panel: "rgba(16,18,48,0.74)", line: "rgba(129,140,248,0.18)", player: "rgba(8,10,28,0.9)", cabinet: "rgba(12,14,36,0.94)", wash: "radial-gradient(ellipse at 50% -10%, rgba(99,102,241,0.22), transparent 42%), #07081a" },
+  ];
 
   const state = {
     lang: localStorage.getItem("freq-lang") || "fa",
@@ -506,18 +528,21 @@
     const rails = isHome()
       ? railBlock(t("continue"), (state.recents || []).slice(0, 10)) +
         railBlock(t("foryou"), (state.forYou || []).length ? state.forYou : []) +
-        railBlock(t("near"), state.nearList || [])
+        railBlock(t("near"), state.nearList || []) +
+        mosaicHtml()
       : "";
     if (!state.stations.length && !rails) {
       $("list").innerHTML = `<div class="card">${t("empty")}</div>`;
+      syncClearBtn();
       return;
     }
     const cards = state.stations.map(function (s) { return stationCard(s, false); }).join("");
     const more = state.hasMore && !isHome() ? `<button id="more" class="more" type="button">${t("more")}</button>` : "";
     const all = isHome()
       ? `<section class="rail"><div class="rail-top"><h3>${esc(t("trending"))}</h3></div></section>`
-      : "";
+      : genreHeroHtml();
     $("list").innerHTML = rails + all + cards + more;
+    syncClearBtn();
   }
 
   function esc(s) {
@@ -1451,9 +1476,10 @@
     c.style.width = w + "px";
     c.style.height = h + "px";
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    ctx.fillStyle = "#09090b";
+    const col = themeCols();
+    ctx.fillStyle = col.bg;
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = "rgba(255,255,255,0.04)";
+    ctx.strokeStyle = "rgba(" + col.iceRgb + ",0.08)";
     for (let x = 0; x <= 12; x++) {
       ctx.beginPath(); ctx.moveTo((x / 12) * w, 0); ctx.lineTo((x / 12) * w, h); ctx.stroke();
     }
@@ -1504,19 +1530,94 @@
   }
 
 
-  function applyTheme() {
-    const th = state.theme || "dark";
-    document.documentElement.setAttribute("data-theme", th);
-    try { localStorage.setItem("freq-theme", th); } catch (_) {}
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", th === "light" ? "#f4f4f5" : "#09090b");
+  function hexRgb(hex) {
+    const h = String(hex || "").replace("#", "");
+    if (h.length !== 6) return "255,77,46";
+    const n = parseInt(h, 16);
+    return ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255);
   }
-  function cycleTheme() {
-    const order = ["dark", "oled", "light"];
-    const i = order.indexOf(state.theme);
-    state.theme = order[(i + 1) % order.length];
+  function themeById(id) {
+    return THEMES.find(function (x) { return x.id === id; }) || THEMES[0];
+  }
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+  function themeCols() {
+    return {
+      acc: cssVar("--acc", "#ff4d2e"),
+      ice: cssVar("--ice", "#7dd3fc"),
+      accRgb: cssVar("--acc-rgb", "255,77,46"),
+      iceRgb: cssVar("--ice-rgb", "125,211,252"),
+      bgRgb: cssVar("--bg-rgb", "9,9,11"),
+      bg: cssVar("--bg", "#09090b"),
+    };
+  }
+  function applyTheme() {
+    const th = themeById(state.theme);
+    state.theme = th.id;
+    const r = document.documentElement;
+    r.setAttribute("data-theme", th.id);
+    r.setAttribute("data-skin", th.light ? "light" : "dark");
+    r.style.setProperty("--bg", th.bg);
+    r.style.setProperty("--panel", th.panel);
+    r.style.setProperty("--acc", th.acc);
+    r.style.setProperty("--ice", th.ice);
+    r.style.setProperty("--text", th.text);
+    r.style.setProperty("--muted", th.muted);
+    r.style.setProperty("--line", th.line);
+    r.style.setProperty("--player", th.player);
+    r.style.setProperty("--cabinet", th.cabinet);
+    r.style.setProperty("--ink", th.ink);
+    r.style.setProperty("--wash", th.wash);
+    r.style.setProperty("--acc-rgb", hexRgb(th.acc));
+    r.style.setProperty("--ice-rgb", hexRgb(th.ice));
+    r.style.setProperty("--bg-rgb", hexRgb(th.bg));
+    try { localStorage.setItem("freq-theme", th.id); } catch (_) {}
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", th.bg);
+    const btn = $("theme-btn");
+    if (btn) btn.textContent = t("theme") + " · " + (state.lang === "fa" ? th.fa : th.en);
+    renderThemeGrid();
+    if (state.mapOpen) drawMap();
+  }
+  function renderThemeGrid() {
+    const box = $("theme-grid");
+    if (!box) return;
+    box.innerHTML = THEMES.map(function (th) {
+      const on = th.id === state.theme ? "on" : "";
+      const name = state.lang === "fa" ? th.fa : th.en;
+      const sub = state.lang === "fa" ? th.en : th.fa;
+      return (
+        '<button type="button" class="theme-tile ' + on + '" data-tid="' + th.id + '">' +
+        '<div class="theme-preview" style="--tp-bg:' + th.bg + ";--tp-acc:" + th.acc + ";--tp-ice:" + th.ice + '"><em></em></div>' +
+        "<b>" + esc(name) + "</b><span>" + esc(sub) + "</span></button>"
+      );
+    }).join("");
+  }
+  function openThemes() {
+    const el = $("themes");
+    if (el) el.hidden = false;
+    const b = $("theme-btn");
+    if (b) b.classList.add("on");
+    renderThemeGrid();
+  }
+  function closeThemes() {
+    const el = $("themes");
+    if (el) el.hidden = true;
+    const b = $("theme-btn");
+    if (b) b.classList.remove("on");
+  }
+  function toggleThemes() {
+    const el = $("themes");
+    if (el && !el.hidden) closeThemes();
+    else openThemes();
+  }
+  function setTheme(id) {
+    state.theme = id;
     applyTheme();
-    toast(t("theme") + " · " + state.theme);
+    const th = themeById(id);
+    toast((state.lang === "fa" ? th.fa : th.en));
   }
   function syncFiltersBtn() {
     const b = $("filters-btn");
@@ -1634,27 +1735,30 @@
       t += state.playing ? 0.018 : 0.006;
       const w = innerWidth;
       const h = innerHeight;
-      ctx.fillStyle = "rgba(9,9,11,0.22)";
+      const col = themeCols();
+      ctx.fillStyle = "rgba(" + col.bgRgb + ",0.22)";
       ctx.fillRect(0, 0, w, h);
       const cx = w / 2;
       const cy = h * 0.38;
       const lamp = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w, h) * 0.55);
-      lamp.addColorStop(0, state.playing ? "rgba(255,77,46,0.14)" : "rgba(125,211,252,0.06)");
-      lamp.addColorStop(1, "rgba(9,9,11,0)");
+      lamp.addColorStop(0, state.playing ? "rgba(" + col.accRgb + ",0.16)" : "rgba(" + col.iceRgb + ",0.07)");
+      lamp.addColorStop(1, "rgba(" + col.bgRgb + ",0)");
       ctx.fillStyle = lamp;
       ctx.fillRect(0, 0, w, h);
       for (let i = 7; i >= 1; i--) {
         const r = 28 + i * 38 + Math.sin(t * 1.4 + i) * (state.playing ? 10 : 3);
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = i % 2 ? `rgba(255,77,46,${0.05 + i * 0.02})` : `rgba(125,211,252,${0.04 + i * 0.015})`;
+        ctx.strokeStyle = i % 2
+          ? "rgba(" + col.accRgb + "," + (0.05 + i * 0.02) + ")"
+          : "rgba(" + col.iceRgb + "," + (0.04 + i * 0.015) + ")";
         ctx.lineWidth = 1.4;
         ctx.stroke();
       }
       ctx.beginPath();
       ctx.arc(cx, cy, 7 + (state.playing ? 3 : 0), 0, Math.PI * 2);
-      ctx.fillStyle = state.playing ? "#ff4d2e" : "#7dd3fc";
-      ctx.shadowColor = state.playing ? "#ff4d2e" : "#7dd3fc";
+      ctx.fillStyle = state.playing ? col.acc : col.ice;
+      ctx.shadowColor = state.playing ? col.acc : col.ice;
       ctx.shadowBlur = 16;
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -1699,11 +1803,12 @@
         if (x === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
+      const col = themeCols();
       const g = ctx.createLinearGradient(0, 0, w, 0);
-      g.addColorStop(0, "rgba(125,211,252,0)");
-      g.addColorStop(0.2, "rgba(125,211,252,0.55)");
-      g.addColorStop(0.55, "rgba(255,77,46,0.8)");
-      g.addColorStop(1, "rgba(125,211,252,0)");
+      g.addColorStop(0, "rgba(" + col.iceRgb + ",0)");
+      g.addColorStop(0.2, "rgba(" + col.iceRgb + ",0.55)");
+      g.addColorStop(0.55, "rgba(" + col.accRgb + ",0.85)");
+      g.addColorStop(1, "rgba(" + col.iceRgb + ",0)");
       ctx.strokeStyle = g;
       ctx.lineWidth = 1.6;
       ctx.stroke();
@@ -1742,14 +1847,15 @@
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
         ctx.lineTo(cx + Math.cos(a) * (r0 + pulse), cy + Math.sin(a) * (r0 + pulse));
-        ctx.strokeStyle = i % 2 ? "rgba(255,77,46,0.72)" : "rgba(125,211,252,0.5)";
+        const col = themeCols();
+        ctx.strokeStyle = i % 2 ? "rgba(" + col.accRgb + ",0.72)" : "rgba(" + col.iceRgb + ",0.5)";
         ctx.lineWidth = 2.2;
         ctx.lineCap = "round";
         ctx.stroke();
       }
       ctx.beginPath();
       ctx.arc(cx, cy, r0 - 6, 0, Math.PI * 2);
-      ctx.strokeStyle = state.playing ? "rgba(255,77,46,0.35)" : "rgba(255,255,255,0.08)";
+      ctx.strokeStyle = state.playing ? "rgba(" + themeCols().accRgb + ",0.35)" : "rgba(255,255,255,0.08)";
       ctx.lineWidth = 2;
       ctx.stroke();
       requestAnimationFrame(frame);
@@ -2016,7 +2122,7 @@
       else if (act === "filters") toggleFilters();
       else if (act === "clearf") clearFilters();
       else if (act === "near") goNear();
-      else if (act === "theme") cycleTheme();
+      else if (act === "theme") toggleThemes();
       else if (act === "seeall") { state.homeAll = true; renderList(); const L=$("list"); if(L) L.scrollTop=0; }
       else if (act === "install") {
         if (window._freqPrompt) {
@@ -2118,6 +2224,20 @@
     $("about").addEventListener("click", (e) => {
       if (e.target.id === "about") $("about").hidden = true;
     });
+    const themeGrid = $("theme-grid");
+    if (themeGrid) {
+      themeGrid.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-tid]");
+        if (!btn) return;
+        setTheme(btn.dataset.tid);
+      });
+    }
+    const themesEl = $("themes");
+    if (themesEl) {
+      themesEl.addEventListener("click", function (e) {
+        if (e.target.id === "themes") closeThemes();
+      });
+    }
     addEventListener("keydown", (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
       if (e.code === "Space") {
@@ -2130,6 +2250,7 @@
         closeStand();
         closeMap();
         closeCar();
+        closeThemes();
       }
       if (e.key === "n" || e.key === "N") playRel(1);
       if (e.key === "p" || e.key === "P") playRel(-1);

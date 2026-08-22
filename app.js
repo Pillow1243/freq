@@ -218,6 +218,7 @@
     applyTheme();
     syncFiltersBtn();
     syncClearBtn();
+    syncDockSleep();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
@@ -386,6 +387,32 @@
       }).join("")}</div>
     </section>`;
   }
+  function todayPick() {
+    const list = state.stations || [];
+    if (!list.length) return null;
+    const d = new Date();
+    const key = d.getFullYear() * 372 + d.getMonth() * 31 + d.getDate();
+    return list[key % list.length];
+  }
+  function todayHeroHtml() {
+    const s = todayPick();
+    if (!s) return "";
+    const fl = flag(s.countrycode);
+    const ico = s.favicon
+      ? `<img src="${s.favicon}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=ph></div>'">`
+      : `<div class="ph"></div>`;
+    return `<section class="today">
+      <button type="button" class="today-hit" data-play="${s.stationuuid}">
+        ${ico}
+        <div class="today-txt">
+          <div class="today-k">${esc(t("today"))}</div>
+          <h2>${fl ? fl + " " : ""}${esc(s.name || "—")}</h2>
+          <p>${esc(s.country || "")}${s.bitrate ? " · " + s.bitrate + "k" : ""}</p>
+        </div>
+        <span class="today-go">${esc(t("play"))}</span>
+      </button>
+    </section>`;
+  }
   function genreHeroHtml() {
     const g = genreByTag(state.tag);
     if (!g || !g.tag) return "";
@@ -526,7 +553,8 @@
     const cfn = dict().count;
     $("count-line").textContent = typeof cfn === "function" ? cfn(n) : String(n);
     const rails = isHome()
-      ? railBlock(t("continue"), (state.recents || []).slice(0, 10)) +
+      ? todayHeroHtml() +
+        railBlock(t("continue"), (state.recents || []).slice(0, 10)) +
         railBlock(t("foryou"), (state.forYou || []).length ? state.forYou : []) +
         railBlock(t("near"), state.nearList || []) +
         mosaicHtml()
@@ -856,7 +884,9 @@
   function setVol(v, silent) {
     v = Math.min(1, Math.max(0, Number(v) || 0));
     if ($("audio")) $("audio").volume = v;
-    if ($("vol")) $("vol").value = String(v);
+    document.querySelectorAll("[data-vol]").forEach(function (el) {
+      el.value = String(v);
+    });
     if (v > 0.01) state.prevVol = v;
     if (!silent) {
       state.userVol = v;
@@ -878,6 +908,19 @@
     state.sleepAt = m ? Date.now() + m * 60000 : 0;
     renderSleep();
     updateSleepLeft();
+    syncDockSleep();
+  }
+  function cycleSleep() {
+    const order = [0, 15, 30, 60, 90];
+    const i = order.indexOf(state.sleepMin);
+    setSleep(order[(i + 1) % order.length]);
+    toast(state.sleepMin ? t("sleep") + " " + state.sleepMin : t("sleepOff"));
+  }
+  function syncDockSleep() {
+    const b = $("dock-sleep");
+    if (!b) return;
+    b.textContent = state.sleepMin ? t("sleep") + " " + state.sleepMin : t("sleep");
+    b.classList.toggle("on", !!state.sleepMin);
   }
 
   function openStage() {
@@ -1619,6 +1662,95 @@
     const th = themeById(id);
     toast((state.lang === "fa" ? th.fa : th.en));
   }
+  function topEntries(obj, n) {
+    return Object.keys(obj || {})
+      .map(function (k) { return [k, Number(obj[k]) || 0]; })
+      .sort(function (a, b) { return b[1] - a[1]; })
+      .slice(0, n);
+  }
+  function renderWrap() {
+    const box = $("wrap-body");
+    if (!box) return;
+    const hours = ((state.stats.ms || 0) / 3600000).toFixed(1);
+    const n = Object.keys(state.stats.hits || {}).length;
+    const favn = (state.favs || []).length;
+    const th = themeById(state.theme);
+    const tops = topEntries(state.stats.hits, 5).map(function (pair) {
+      const id = pair[0];
+      const s = findStation(id);
+      const name = (s && s.name) || (state.stats.names && state.stats.names[id]) || id.slice(0, 10);
+      return "<li><b>" + esc(name) + "</b><span>" + pair[1] + "</span></li>";
+    }).join("");
+    const gens = topEntries(state.stats.tags, 8).map(function (pair) {
+      return "<em>" + esc(pair[0]) + "</em>";
+    }).join("");
+    box.innerHTML =
+      '<div class="wrap-nums">' +
+      "<div><b>" + hours + "</b><span>" + t("hours") + "</span></div>" +
+      "<div><b>" + n + "</b><span>" + t("heard") + "</span></div>" +
+      "<div><b>" + favn + "</b><span>" + t("fav") + "</span></div>" +
+      "</div>" +
+      '<div class="wrap-theme">' + t("theme") + " · " + (state.lang === "fa" ? th.fa : th.en) + "</div>" +
+      (tops ? "<h4>" + t("topStations") + '</h4><ol class="wrap-ol">' + tops + "</ol>" : "") +
+      (gens ? "<h4>" + t("topGenres") + '</h4><div class="wrap-tags">' + gens + "</div>" : "<p class=\"themes-sub\">" + t("wrapEmpty") + "</p>");
+  }
+  function toggleWrap() {
+    const el = $("wrap");
+    if (!el) return;
+    if (!el.hidden) {
+      el.hidden = true;
+      return;
+    }
+    renderWrap();
+    el.hidden = false;
+  }
+  function closeWrap() {
+    const el = $("wrap");
+    if (el) el.hidden = true;
+  }
+  function startVoice() {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Rec) {
+      toast(t("noVoice"));
+      return;
+    }
+    try {
+      if (state.rec) {
+        state.rec.stop();
+        state.rec = null;
+      }
+    } catch (_) {}
+    const rec = new Rec();
+    rec.lang = state.lang === "fa" ? "fa-IR" : "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    const btn = $("mic-btn");
+    if (btn) btn.classList.add("on");
+    rec.onresult = function (e) {
+      const said = (e.results && e.results[0] && e.results[0][0] && e.results[0][0].transcript) || "";
+      if ($("q")) $("q").value = said;
+      state.q = said;
+      state.mode = "browse";
+      state.homeAll = !!String(said).trim();
+      loadStations().catch(function () {});
+    };
+    rec.onend = function () {
+      if (btn) btn.classList.remove("on");
+      state.rec = null;
+    };
+    rec.onerror = function () {
+      if (btn) btn.classList.remove("on");
+      toast(t("noVoice"));
+    };
+    state.rec = rec;
+    try {
+      rec.start();
+      toast(t("listening"));
+    } catch (_) {
+      if (btn) btn.classList.remove("on");
+      toast(t("noVoice"));
+    }
+  }
   function syncFiltersBtn() {
     const b = $("filters-btn");
     const box = $("filters");
@@ -2123,6 +2255,9 @@
       else if (act === "clearf") clearFilters();
       else if (act === "near") goNear();
       else if (act === "theme") toggleThemes();
+      else if (act === "wrap") toggleWrap();
+      else if (act === "voice") startVoice();
+      else if (act === "sleeptog") cycleSleep();
       else if (act === "seeall") { state.homeAll = true; renderList(); const L=$("list"); if(L) L.scrollTop=0; }
       else if (act === "install") {
         if (window._freqPrompt) {
@@ -2173,8 +2308,28 @@
         setSleep(Number(btn.dataset.sleep));
       });
     }
-    const volEl = $("vol");
-    if (volEl) volEl.addEventListener("input", (e) => setVol(e.target.value));
+    document.querySelectorAll("[data-vol]").forEach(function (el) {
+      el.addEventListener("input", function (e) { setVol(e.target.value); });
+    });
+    const playerEl = $("player");
+    if (playerEl) {
+      let px = 0, py = 0, pswipe = false;
+      playerEl.addEventListener("touchstart", function (e) {
+        px = e.touches[0].clientX;
+        py = e.touches[0].clientY;
+        pswipe = true;
+      }, { passive: true });
+      playerEl.addEventListener("touchend", function (e) {
+        if (!pswipe) return;
+        const dx = e.changedTouches[0].clientX - px;
+        const dy = e.changedTouches[0].clientY - py;
+        if (Math.abs(dx) > 72 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+          const rtl = document.documentElement.dir === "rtl";
+          playRel((dx > 0) === rtl ? 1 : -1);
+        }
+        pswipe = false;
+      }, { passive: true });
+    }
 
     let sy = 0;
     let swipeOk = false;
@@ -2251,6 +2406,7 @@
         closeMap();
         closeCar();
         closeThemes();
+        closeWrap();
       }
       if (e.key === "n" || e.key === "N") playRel(1);
       if (e.key === "p" || e.key === "P") playRel(-1);

@@ -80,9 +80,15 @@
     playing: false,
     status: "",
     sleepAt: 0,
+    sleepMin: 0,
     playGen: 0,
     ignoreErr: false,
     fails: 0,
+    listenMs: 0,
+    listenTick: 0,
+    prevVol: Number(localStorage.getItem("freq-vol") || "0.85") || 0.85,
+    stageOpen: false,
+    sheet: null,
   };
 
   function safeParse(key, fallback) {
@@ -110,6 +116,10 @@
     });
     document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
       el.placeholder = d[el.dataset.i18nPlaceholder] || "";
+    });
+    document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+      const label = d[el.dataset.i18nAria];
+      if (typeof label === "string") el.setAttribute("aria-label", label);
     });
     document.querySelectorAll("[data-lang]").forEach((b) => {
       b.classList.toggle("on", b.dataset.lang === state.lang);
@@ -261,12 +271,15 @@
   }
 
   function renderSleep() {
-    const sel = $("sleep");
-    const cur = sel.value;
-    sel.innerHTML = [0, 15, 30, 60, 90]
-      .map((m) => `<option value="${m}">${m ? t("sleep") + " " + m : t("sleepOff")}</option>`)
+    const box = $("sleep-chips");
+    if (!box) return;
+    box.innerHTML = [0, 15, 30, 60, 90]
+      .map((m) => {
+        const on = state.sleepMin === m ? "on" : "";
+        const label = m ? String(m) : t("sleepOff");
+        return `<button type="button" class="${on}" data-sleep="${m}">${label}</button>`;
+      })
       .join("");
-    if (cur) sel.value = cur;
   }
 
   function renderList() {
@@ -288,8 +301,8 @@
         return `<div class="card ${on}" data-id="${s.stationuuid}">
           ${ico}
           <button type="button" class="card-hit" data-play="${s.stationuuid}">
-            <div class="nm">${fl ? fl + " " : ""}${s.name || "—"}</div>
-            <div class="meta">${s.country || ""} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + tags : ""}</div>
+            <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}</div>
+            <div class="meta">${esc(s.country || "")} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + esc(tags) : ""}</div>
           </button>
           <button type="button" class="info" data-info="${s.stationuuid}">i</button>
         </div>`;
@@ -299,18 +312,168 @@
     $("list").innerHTML = cards + more;
   }
 
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function hashHue(str) {
+    let h = 0;
+    for (const c of String(str || "F")) h = (h * 33 + c.charCodeAt(0)) % 360;
+    return h;
+  }
+  function fakeFreq(s) {
+    let n = 0;
+    for (const c of (s && (s.stationuuid || s.name)) || "F") n = (n * 31 + c.charCodeAt(0)) >>> 0;
+    return (88 + (n % 199) / 10).toFixed(1) + " MHz";
+  }
+  function initials(name) {
+    const parts = String(name || "F")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const letters = (parts[0] ? parts[0][0] : "F") + (parts[1] ? parts[1][0] : "");
+    return letters.toUpperCase();
+  }
+  function paintPh(el, station) {
+    if (!el) return;
+    const name = (station && station.name) || "FREQ";
+    const h = hashHue(name);
+    el.textContent = initials(name);
+    el.style.background = `conic-gradient(from 210deg, hsl(${h} 86% 58%), hsl(${(h + 48) % 360} 90% 46%), #141022, hsl(${h} 86% 58%))`;
+  }
+  function setArt(img, ph, station) {
+    if (!img || !ph) return;
+    const src = station && station.favicon;
+    if (src) {
+      img.onload = () => {
+        img.hidden = false;
+        ph.hidden = true;
+      };
+      img.onerror = () => {
+        img.hidden = true;
+        ph.hidden = false;
+        paintPh(ph, station);
+      };
+      if (img.src !== src) img.src = src;
+      else {
+        img.hidden = false;
+        ph.hidden = true;
+      }
+    } else {
+      img.removeAttribute("src");
+      img.hidden = true;
+      ph.hidden = false;
+      paintPh(ph, station);
+    }
+  }
+
+  function listenElapsed() {
+    const extra = state.playing && state.listenTick ? Date.now() - state.listenTick : 0;
+    return state.listenMs + extra;
+  }
+  function fmtTime(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }
+  function clockListen(on) {
+    if (on) {
+      if (!state.listenTick) state.listenTick = Date.now();
+    } else if (state.listenTick) {
+      state.listenMs += Date.now() - state.listenTick;
+      state.listenTick = 0;
+    }
+  }
+
   function renderPlayer() {
     const s = state.current;
-    $("p-toggle").textContent = state.playing ? t("pause") : t("play");
-    $("p-fav").textContent = s && isFav(s.stationuuid) ? "♥" : "♡";
-    if (state.status) $("p-kick").textContent = state.status;
-    else $("p-kick").textContent = t("onair");
-    if (!s) return;
-    $("p-name").textContent = s.name || "—";
-    $("p-sub").textContent = [s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : ""]
+    const player = $("player");
+    const stage = $("stage");
+    const fav = !!(s && isFav(s.stationuuid));
+    const connecting = state.status === t("connecting");
+    const failed = state.status === t("failed");
+
+    player.classList.toggle("on", state.playing);
+    player.classList.toggle("connecting", connecting);
+    player.classList.toggle("failed", failed);
+    stage.classList.toggle("open", state.stageOpen);
+    stage.classList.toggle("on-air", state.playing);
+    document.querySelectorAll(".fav-btn").forEach((b) => b.classList.toggle("on", fav));
+
+    const kick = state.status || t("onair");
+    $("p-kick").textContent = kick;
+    $("s-kick").textContent = kick;
+
+    const toggleLabel = state.playing ? t("pause") : t("play");
+    document.querySelectorAll("[data-act='toggle']").forEach((b) => b.setAttribute("aria-label", toggleLabel));
+
+    const vol = $("audio").volume;
+    $("vol-n").textContent = String(Math.round(vol * 100));
+    $("mute-btn").classList.toggle("muted", vol < 0.01);
+
+    if ($("s-time")) $("s-time").textContent = fmtTime(listenElapsed());
+    updateSleepLeft();
+
+    if (!s) {
+      $("p-name").textContent = "—";
+      $("s-name").textContent = "—";
+      $("p-sub").textContent = "";
+      $("s-sub").textContent = "";
+      $("p-freq").textContent = "";
+      $("s-freq").textContent = "";
+      return;
+    }
+
+    const name = s.name || "—";
+    $("p-name").textContent = name;
+    $("s-name").textContent = name;
+    const sub = [flag(s.countrycode), s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : ""]
       .filter(Boolean)
       .join(" · ");
-    if (s.favicon) $("p-ico").src = s.favicon;
+    $("p-sub").textContent = sub;
+    $("s-sub").textContent = sub;
+    const mhz = fakeFreq(s);
+    $("p-freq").textContent = mhz;
+    $("s-freq").textContent = mhz;
+    setArt($("p-ico"), $("p-ph"), s);
+    setArt($("s-ico"), $("s-ph"), s);
+    $("p-vinyl").classList.toggle("live", state.playing);
+    $("s-vinyl").classList.toggle("live", state.playing);
+    setMediaSession(s);
+  }
+
+  function updateSleepLeft() {
+    const el = $("sleep-left");
+    if (!el) return;
+    if (!state.sleepAt) {
+      el.textContent = "";
+      return;
+    }
+    const left = Math.max(0, state.sleepAt - Date.now());
+    const m = Math.floor(left / 60000);
+    const s = Math.floor((left % 60000) / 1000);
+    el.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  function setMediaSession(s) {
+    if (!("mediaSession" in navigator) || !s) return;
+    try {
+      const art = s.favicon ? [{ src: s.favicon, sizes: "96x96", type: "image/png" }] : [];
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: s.name || "FREQ",
+        artist: s.country || "FREQ",
+        album: fakeFreq(s) + " · FREQ",
+        artwork: art,
+      });
+      navigator.mediaSession.playbackState = state.playing ? "playing" : "paused";
+    } catch (_) {}
   }
 
   function markCurrent() {
@@ -328,6 +491,8 @@
     state.current = station;
     state.status = t("connecting");
     state.playing = false;
+    state.listenMs = 0;
+    state.listenTick = 0;
     pushRecent(station);
     audio.pause();
     audio.removeAttribute("src");
@@ -344,6 +509,7 @@
         state.fails = 0;
         state.playing = true;
         state.status = "";
+        clockListen(true);
         renderPlayer();
       }).catch(() => {
         if (gen !== state.playGen) return;
@@ -359,6 +525,7 @@
   function failSkip() {
     state.fails = (state.fails || 0) + 1;
     state.playing = false;
+    clockListen(false);
     state.status = t("failed");
     renderPlayer();
     if (state.fails < 4) setTimeout(() => playRel(1), 500);
@@ -397,13 +564,52 @@
     if (state.playing) {
       audio.pause();
       state.playing = false;
+      clockListen(false);
     } else {
-      audio.play().then(() => {
-        state.playing = true;
-        state.status = "";
-        renderPlayer();
-      }).catch(() => failSkip());
+      audio
+        .play()
+        .then(() => {
+          state.playing = true;
+          state.status = "";
+          clockListen(true);
+          renderPlayer();
+        })
+        .catch(() => failSkip());
     }
+    renderPlayer();
+  }
+
+  function setVol(v) {
+    v = Math.min(1, Math.max(0, Number(v) || 0));
+    $("audio").volume = v;
+    $("vol").value = String(v);
+    if (v > 0.01) state.prevVol = v;
+    localStorage.setItem("freq-vol", String(v));
+    $("vol-n").textContent = String(Math.round(v * 100));
+    $("mute-btn").classList.toggle("muted", v < 0.01);
+  }
+  function toggleMute() {
+    const cur = $("audio").volume;
+    if (cur < 0.01) setVol(state.prevVol || 0.85);
+    else setVol(0);
+  }
+  function setSleep(m) {
+    state.sleepMin = m;
+    state.sleepAt = m ? Date.now() + m * 60000 : 0;
+    renderSleep();
+    updateSleepLeft();
+  }
+
+  function openStage() {
+    state.stageOpen = true;
+    $("stage").hidden = false;
+    document.body.classList.add("stage-open");
+    renderPlayer();
+  }
+  function closeStage() {
+    state.stageOpen = false;
+    $("stage").hidden = true;
+    document.body.classList.remove("stage-open");
     renderPlayer();
   }
 
@@ -455,6 +661,120 @@
       requestAnimationFrame(frame);
     }
     frame();
+  }
+
+  function playerWave() {
+    const c = $("p-wave");
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    let t = 0;
+    function resize() {
+      const r = c.parentElement.getBoundingClientRect();
+      c.width = Math.max(1, r.width) * devicePixelRatio;
+      c.height = 26 * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+    resize();
+    addEventListener("resize", resize);
+    function frame() {
+      t += state.playing ? 0.09 : 0.02;
+      const w = c.width / devicePixelRatio;
+      const h = 26;
+      ctx.clearRect(0, 0, w, h);
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 3) {
+        const amp = state.playing ? 7.5 : 2.2;
+        const y =
+          h * 0.55 +
+          Math.sin(x * 0.045 + t) * amp +
+          Math.sin(x * 0.11 + t * 1.7) * (amp * 0.45);
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      const g = ctx.createLinearGradient(0, 0, w, 0);
+      g.addColorStop(0, "rgba(122,240,255,0)");
+      g.addColorStop(0.2, "rgba(122,240,255,0.55)");
+      g.addColorStop(0.55, "rgba(255,43,214,0.8)");
+      g.addColorStop(1, "rgba(122,240,255,0)");
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  function stageRing() {
+    const c = $("s-ring");
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    let t = 0;
+    function resize() {
+      const box = c.getBoundingClientRect();
+      const s = Math.max(1, box.width);
+      c.width = s * devicePixelRatio;
+      c.height = s * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+    resize();
+    addEventListener("resize", resize);
+    function frame() {
+      t += state.playing ? 0.05 : 0.012;
+      const w = c.width / devicePixelRatio;
+      const cx = w / 2;
+      const cy = w / 2;
+      ctx.clearRect(0, 0, w, w);
+      const bars = 64;
+      const r0 = w * 0.42;
+      for (let i = 0; i < bars; i++) {
+        const a = (i / bars) * Math.PI * 2 - Math.PI / 2 + t * 0.15;
+        const pulse = state.playing
+          ? 10 + Math.abs(Math.sin(t * 3 + i * 0.45)) * 18 + Math.abs(Math.sin(t * 1.4 + i)) * 8
+          : 4;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+        ctx.lineTo(cx + Math.cos(a) * (r0 + pulse), cy + Math.sin(a) * (r0 + pulse));
+        ctx.strokeStyle = i % 2 ? "rgba(255,43,214,0.72)" : "rgba(122,240,255,0.55)";
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = "round";
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(cx, cy, r0 - 6, 0, Math.PI * 2);
+      ctx.strokeStyle = state.playing ? "rgba(255,43,214,0.28)" : "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
+  function findStation(id) {
+    return (
+      state.stations.find((x) => x.stationuuid === id) ||
+      state.favs.find((x) => x.stationuuid === id) ||
+      state.recents.find((x) => x.stationuuid === id) ||
+      (state.current && state.current.stationuuid === id ? state.current : null)
+    );
+  }
+  function openSheet(s) {
+    state.sheet = s;
+    $("sheet").hidden = false;
+    $("sh-name").textContent = s.name || "—";
+    $("sh-meta").textContent = [
+      flag(s.countrycode),
+      s.country,
+      s.codec,
+      s.bitrate ? s.bitrate + " kbps" : "",
+      s.votes != null ? t("votes") + " " + s.votes : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    $("sh-tags").textContent = (s.tags || "").split(",").filter(Boolean).slice(0, 8).join(" · ");
+    if (s.favicon) $("sh-ico").src = s.favicon;
+    const home = s.homepage && /^https?:/i.test(s.homepage) ? s.homepage : "";
+    $("sh-home").hidden = !home;
+    if (home) $("sh-home").href = home;
   }
 
   function bind() {
@@ -529,70 +849,77 @@
         }
       }
     });
-    function findStation(id) {
-    return (
-      state.stations.find((x) => x.stationuuid === id) ||
-      state.favs.find((x) => x.stationuuid === id) ||
-      state.recents.find((x) => x.stationuuid === id) ||
-      (state.current && state.current.stationuuid === id ? state.current : null)
+    $("sheet-x").addEventListener("click", () => {
+      $("sheet").hidden = true;
+    });
+    $("sh-play").addEventListener("click", () => {
+      if (state.sheet) play(state.sheet);
+    });
+    $("sh-similar").addEventListener("click", () => {
+      const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0];
+      if (!tag) return;
+      state.mode = "browse";
+      state.tag = tag.trim();
+      state.q = "";
+      $("q").value = "";
+      $("sheet").hidden = true;
+      loadStations().catch(() => {});
+    });
+
+    function onAct(e) {
+      const btn = e.target.closest("[data-act]");
+      if (!btn) return;
+      const act = btn.dataset.act;
+      if (act === "toggle") toggle();
+      else if (act === "prev") playRel(-1);
+      else if (act === "next") playRel(1);
+      else if (act === "rand") playRandom();
+      else if (act === "fav") toggleFav(state.current);
+      else if (act === "expand") openStage();
+      else if (act === "collapse") closeStage();
+      else if (act === "mute") toggleMute();
+    }
+    $("player").addEventListener("click", onAct);
+    $("stage").addEventListener("click", onAct);
+    $("sleep-chips").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-sleep]");
+      if (!btn) return;
+      setSleep(Number(btn.dataset.sleep));
+    });
+    $("vol").addEventListener("input", (e) => setVol(e.target.value));
+
+    let sy = 0;
+    $("stage").addEventListener(
+      "touchstart",
+      (e) => {
+        sy = e.touches[0].clientY;
+      },
+      { passive: true }
     );
-  }
-  function openSheet(s) {
-    state.sheet = s;
-    $("sheet").hidden = false;
-    $("sh-name").textContent = s.name || "—";
-    $("sh-meta").textContent = [flag(s.countrycode), s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : "", s.votes != null ? t("votes") + " " + s.votes : ""]
-      .filter(Boolean)
-      .join(" · ");
-    $("sh-tags").textContent = (s.tags || "").split(",").filter(Boolean).slice(0, 8).join(" · ");
-    if (s.favicon) $("sh-ico").src = s.favicon;
-    const home = s.homepage && /^https?:/i.test(s.homepage) ? s.homepage : "";
-    $("sh-home").hidden = !home;
-    if (home) $("sh-home").href = home;
-  }
-  $("sheet-x").addEventListener("click", () => {
-    $("sheet").hidden = true;
-  });
-  $("sh-play").addEventListener("click", () => {
-    if (state.sheet) play(state.sheet);
-  });
-  $("sh-similar").addEventListener("click", () => {
-    const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0];
-    if (!tag) return;
-    state.mode = "browse";
-    state.tag = tag.trim();
-    state.q = "";
-    $("q").value = "";
-    $("sheet").hidden = true;
-    loadStations().catch(() => {});
-  });
-  $("p-toggle").addEventListener("click", toggle);
-    $("p-fav").addEventListener("click", () => toggleFav(state.current));
-    $("p-next").addEventListener("click", () => playRel(1));
-    $("p-prev").addEventListener("click", () => playRel(-1));
-    $("p-rand").addEventListener("click", playRandom);
-    $("vol").addEventListener("input", (e) => {
-      const v = Number(e.target.value);
-      $("audio").volume = v;
-      localStorage.setItem("freq-vol", String(v));
-    });
-    $("sleep").addEventListener("change", (e) => {
-      const m = Number(e.target.value);
-      state.sleepAt = m ? Date.now() + m * 60000 : 0;
-    });
+    $("stage").addEventListener(
+      "touchend",
+      (e) => {
+        const dy = e.changedTouches[0].clientY - sy;
+        if (dy > 96) closeStage();
+      },
+      { passive: true }
+    );
+
     $("audio").addEventListener("pause", () => {
+      if (state.ignoreErr) return;
       state.playing = false;
+      clockListen(false);
       renderPlayer();
     });
     $("audio").addEventListener("play", () => {
       state.playing = true;
       state.status = "";
+      clockListen(true);
       renderPlayer();
     });
     $("audio").addEventListener("error", () => {
-      state.status = t("failed");
-      renderPlayer();
-      setTimeout(() => playRel(1), 800);
+      if (state.ignoreErr) return;
+      failSkip();
     });
     $("about-btn").addEventListener("click", () => {
       $("about").hidden = false;
@@ -609,16 +936,34 @@
         e.preventDefault();
         toggle();
       }
+      if (e.key === "Escape") closeStage();
       if (e.key === "n" || e.key === "N") playRel(1);
       if (e.key === "p" || e.key === "P") playRel(-1);
       if (e.key === "r" || e.key === "R") playRandom();
       if (e.key === "f" || e.key === "F") toggleFav(state.current);
     });
+    if ("mediaSession" in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler("play", () => {
+          if (!state.playing) toggle();
+        });
+        navigator.mediaSession.setActionHandler("pause", () => {
+          if (state.playing) toggle();
+        });
+        navigator.mediaSession.setActionHandler("nexttrack", () => playRel(1));
+        navigator.mediaSession.setActionHandler("previoustrack", () => playRel(-1));
+      } catch (_) {}
+    }
     setInterval(() => {
       if (state.sleepAt && Date.now() >= state.sleepAt) {
         state.sleepAt = 0;
-        $("sleep").value = "0";
+        state.sleepMin = 0;
+        renderSleep();
         $("audio").pause();
+      }
+      if (state.playing || state.sleepAt) {
+        if ($("s-time")) $("s-time").textContent = fmtTime(listenElapsed());
+        updateSleepLeft();
       }
     }, 1000);
   }
@@ -627,9 +972,11 @@
     applyI18n();
     bind();
     viz();
+    playerWave();
+    stageRing();
     const vol = Number(localStorage.getItem("freq-vol") || "0.85");
-    $("audio").volume = vol;
-    $("vol").value = String(vol);
+    setVol(Number.isFinite(vol) ? vol : 0.85);
+    if (state.current) renderPlayer();
     try {
       await loadStations();
       renderPlayer();

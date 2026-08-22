@@ -107,7 +107,7 @@
   ];
 
   const state = {
-    lang: localStorage.getItem("freq-lang") || "fa",
+    lang: localStorage.getItem("freq-lang") || "en",
     host: HOSTS[0],
     cc: "",
     tag: "",

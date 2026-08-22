@@ -42,7 +42,8 @@ svg { display: block; width: 20px; height: 20px; fill: currentColor; }
 }
 .grain { display: none; }
 
-.top, .countries, .list, .player, .credit, .toolbar, .waveband, .gstrip, .filters { position: relative; z-index: 2; }
+.top, .countries, .list, .player, .credit, .toolbar, .waveband, .gstrip, .filters, .strips { position: relative; z-index: 2; }
+.top, .strips, .toolbar, .filters { flex: 0 0 auto; }
 .top { display: flex; align-items: center; gap: 12px; padding: 16px 18px 8px; }
 .brand {
   display: flex; gap: 10px; align-items: center;
@@ -74,7 +75,24 @@ html[dir="rtl"] .search input { padding: 11px 16px 11px 44px; }
 .lang-switch button { border: 0; background: none; color: var(--muted); padding: 6px 10px; border-radius: 999px; font-weight: 700; font-size: 11px; }
 .lang-switch button.on { background: var(--acc); color: var(--ink); }
 
-.countries { display: flex; gap: 8px; overflow: auto; padding: 4px 18px 10px; }
+.strips { padding-bottom: 2px; }
+.strip-lab {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  padding: 2px 18px 0;
+}
+.countries {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  align-items: center;
+  min-height: 42px;
+  padding: 4px 18px 8px;
+}
 .countries button, .sorts button, .chips button, .waveband button, .folders button, .keys-btn {
   border: 1px solid var(--line); background: var(--panel); color: var(--muted);
   border-radius: 999px; padding: 7px 12px; white-space: nowrap; font-size: 13px;
@@ -515,6 +533,7 @@ body.stage-open .player, body.stage-open .credit { visibility: hidden; pointer-e
 body.stand-on .player, body.stand-on .credit, body.stand-on .list,
 body.stand-on .top, body.stand-on .countries, body.stand-on .toolbar, body.stand-on .waveband,
 body.stand-on .stage, body.stand-on .folders, body.stand-on .gstrip, body.stand-on .filters,
+body.stand-on .strips,
 body.stand-on .themes { visibility: hidden; pointer-events: none; }
 
 .map, .car { position: fixed; inset: 0; z-index: 52; }
@@ -551,6 +570,7 @@ body.stand-on .themes { visibility: hidden; pointer-events: none; }
   .search input { padding: 9px 40px 9px 12px; }
   html[dir="rtl"] .search input { padding: 9px 12px 9px 40px; }
   .countries, .gstrip .genres { padding-inline: 12px; }
+  .strip-lab { padding-inline: 12px; }
   .toolbar { padding: 0 12px 6px; gap: 6px; }
   .keys-btn { padding: 7px 10px; font-size: 11px; }
   .list {

@@ -1,11 +1,11 @@
 /* FREQ shell cache — ساخته شده توسط مبین.آ */
-const CACHE = "freq-v7";
+const CACHE = "freq-v8";
 const SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=7",
-  "./app.js?v=7",
-  "./i18n.js?v=7",
+  "./styles.css?v=8",
+  "./app.js?v=8",
+  "./i18n.js?v=8",
   "./manifest.webmanifest",
   "./assets/icon-192.png",
   "./assets/icon-512.png",

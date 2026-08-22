@@ -100,7 +100,8 @@
     }
   }
   function dict() {
-    return (window.I18N && window.I18N[state.lang]) || window.I18N.fa;
+    const pack = window.I18N || {};
+    return pack[state.lang] || pack.fa || { dir: "rtl", htmlLang: "fa", title: "FREQ" };
   }
   function t(key) {
     const v = dict()[key];
@@ -140,14 +141,21 @@
 
   async function getJSON(path) {
     let last = null;
+    const tried = new Set();
     for (const h of [state.host, ...HOSTS]) {
+      if (!h || tried.has(h)) continue;
+      tried.add(h);
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 8000) : null;
       try {
-        const res = await fetch(h + path);
+        const res = await fetch(h + path, ctrl ? { signal: ctrl.signal } : {});
         if (!res.ok) throw new Error(String(res.status));
         state.host = h;
-        return res.json();
+        return await res.json();
       } catch (e) {
         last = e;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
     throw last || new Error("radio api down");
@@ -332,7 +340,7 @@
   }
   function initials(name) {
     const parts = String(name || "F")
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/[^A-Za-z0-9\u0600-\u06FF\u0400-\u04FF]+/g, " ")
       .trim()
       .split(/\s+/)
       .filter(Boolean);
@@ -392,10 +400,15 @@
     }
   }
 
+  function setText(id, value) {
+    const el = $(id);
+    if (el) el.textContent = value;
+  }
   function renderPlayer() {
     const s = state.current;
     const player = $("player");
     const stage = $("stage");
+    if (!player) return;
     const fav = !!(s && isFav(s.stationuuid));
     const connecting = state.status === t("connecting");
     const failed = state.status === t("failed");
@@ -403,49 +416,54 @@
     player.classList.toggle("on", state.playing);
     player.classList.toggle("connecting", connecting);
     player.classList.toggle("failed", failed);
-    stage.classList.toggle("open", state.stageOpen);
-    stage.classList.toggle("on-air", state.playing);
+    if (stage) {
+      stage.classList.toggle("open", state.stageOpen);
+      stage.classList.toggle("on-air", state.playing);
+      stage.setAttribute("aria-hidden", state.stageOpen ? "false" : "true");
+    }
+    document.body.classList.toggle("stage-open", state.stageOpen);
     document.querySelectorAll(".fav-btn").forEach((b) => b.classList.toggle("on", fav));
 
     const kick = state.status || t("onair");
-    $("p-kick").textContent = kick;
-    $("s-kick").textContent = kick;
+    setText("p-kick", kick);
+    setText("s-kick", kick);
 
     const toggleLabel = state.playing ? t("pause") : t("play");
     document.querySelectorAll("[data-act='toggle']").forEach((b) => b.setAttribute("aria-label", toggleLabel));
 
-    const vol = $("audio").volume;
-    $("vol-n").textContent = String(Math.round(vol * 100));
-    $("mute-btn").classList.toggle("muted", vol < 0.01);
-
-    if ($("s-time")) $("s-time").textContent = fmtTime(listenElapsed());
+    const audio = $("audio");
+    const vol = audio ? audio.volume : 0.85;
+    setText("vol-n", String(Math.round(vol * 100)));
+    const muteBtn = $("mute-btn");
+    if (muteBtn) muteBtn.classList.toggle("muted", vol < 0.01);
+    setText("s-time", fmtTime(listenElapsed()));
     updateSleepLeft();
 
     if (!s) {
-      $("p-name").textContent = "—";
-      $("s-name").textContent = "—";
-      $("p-sub").textContent = "";
-      $("s-sub").textContent = "";
-      $("p-freq").textContent = "";
-      $("s-freq").textContent = "";
+      setText("p-name", "—");
+      setText("s-name", "—");
+      setText("p-sub", "");
+      setText("s-sub", "");
+      setText("p-freq", "");
+      setText("s-freq", "");
       return;
     }
 
     const name = s.name || "—";
-    $("p-name").textContent = name;
-    $("s-name").textContent = name;
+    setText("p-name", name);
+    setText("s-name", name);
     const sub = [flag(s.countrycode), s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : ""]
       .filter(Boolean)
       .join(" · ");
-    $("p-sub").textContent = sub;
-    $("s-sub").textContent = sub;
+    setText("p-sub", sub);
+    setText("s-sub", sub);
     const mhz = fakeFreq(s);
-    $("p-freq").textContent = mhz;
-    $("s-freq").textContent = mhz;
+    setText("p-freq", mhz);
+    setText("s-freq", mhz);
     setArt($("p-ico"), $("p-ph"), s);
     setArt($("s-ico"), $("s-ph"), s);
-    $("p-vinyl").classList.toggle("live", state.playing);
-    $("s-vinyl").classList.toggle("live", state.playing);
+    if ($("p-vinyl")) $("p-vinyl").classList.toggle("live", state.playing);
+    if ($("s-vinyl")) $("s-vinyl").classList.toggle("live", state.playing);
     setMediaSession(s);
   }
 
@@ -581,12 +599,15 @@
 
   function setVol(v) {
     v = Math.min(1, Math.max(0, Number(v) || 0));
-    $("audio").volume = v;
-    $("vol").value = String(v);
+    if ($("audio")) $("audio").volume = v;
+    if ($("vol")) $("vol").value = String(v);
     if (v > 0.01) state.prevVol = v;
-    localStorage.setItem("freq-vol", String(v));
-    $("vol-n").textContent = String(Math.round(v * 100));
-    $("mute-btn").classList.toggle("muted", v < 0.01);
+    try {
+      localStorage.setItem("freq-vol", String(v));
+    } catch (_) {}
+    setText("vol-n", String(Math.round(v * 100)));
+    const muteBtn = $("mute-btn");
+    if (muteBtn) muteBtn.classList.toggle("muted", v < 0.01);
   }
   function toggleMute() {
     const cur = $("audio").volume;
@@ -602,20 +623,30 @@
 
   function openStage() {
     state.stageOpen = true;
-    $("stage").hidden = false;
+    const stage = $("stage");
+    if (stage) {
+      stage.hidden = false;
+      stage.classList.add("open");
+    }
     document.body.classList.add("stage-open");
     renderPlayer();
   }
   function closeStage() {
     state.stageOpen = false;
-    $("stage").hidden = true;
+    const stage = $("stage");
+    if (stage) {
+      stage.classList.remove("open");
+      stage.hidden = true;
+    }
     document.body.classList.remove("stage-open");
     renderPlayer();
   }
 
   function viz() {
     const c = $("viz");
+    if (!c || !c.getContext) return;
     const ctx = c.getContext("2d");
+    if (!ctx) return;
     let t = 0;
     function resize() {
       c.width = innerWidth * devicePixelRatio;
@@ -879,31 +910,40 @@
       else if (act === "collapse") closeStage();
       else if (act === "mute") toggleMute();
     }
-    $("player").addEventListener("click", onAct);
-    $("stage").addEventListener("click", onAct);
-    $("sleep-chips").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-sleep]");
-      if (!btn) return;
-      setSleep(Number(btn.dataset.sleep));
-    });
-    $("vol").addEventListener("input", (e) => setVol(e.target.value));
+    document.addEventListener("click", onAct);
+    const chips = $("sleep-chips");
+    if (chips) {
+      chips.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-sleep]");
+        if (!btn) return;
+        setSleep(Number(btn.dataset.sleep));
+      });
+    }
+    const volEl = $("vol");
+    if (volEl) volEl.addEventListener("input", (e) => setVol(e.target.value));
 
     let sy = 0;
-    $("stage").addEventListener(
-      "touchstart",
-      (e) => {
-        sy = e.touches[0].clientY;
-      },
-      { passive: true }
-    );
-    $("stage").addEventListener(
-      "touchend",
-      (e) => {
-        const dy = e.changedTouches[0].clientY - sy;
-        if (dy > 96) closeStage();
-      },
-      { passive: true }
-    );
+    let swipeOk = false;
+    const stageEl = $("stage");
+    if (stageEl) {
+      stageEl.addEventListener(
+        "touchstart",
+        (e) => {
+          sy = e.touches[0].clientY;
+          swipeOk = sy < 90;
+        },
+        { passive: true }
+      );
+      stageEl.addEventListener(
+        "touchend",
+        (e) => {
+          if (!swipeOk) return;
+          const dy = e.changedTouches[0].clientY - sy;
+          if (dy > 110) closeStage();
+        },
+        { passive: true }
+      );
+    }
 
     $("audio").addEventListener("pause", () => {
       if (state.ignoreErr) return;
@@ -968,21 +1008,41 @@
     }, 1000);
   }
 
+  function hideLoader() {
+    const el = $("loader");
+    if (el) el.classList.add("off");
+  }
   async function boot() {
-    applyI18n();
-    bind();
-    viz();
-    playerWave();
-    stageRing();
-    const vol = Number(localStorage.getItem("freq-vol") || "0.85");
-    setVol(Number.isFinite(vol) ? vol : 0.85);
-    if (state.current) renderPlayer();
+    try {
+      applyI18n();
+      bind();
+      viz();
+      playerWave();
+      stageRing();
+      const vol = Number(localStorage.getItem("freq-vol") || "0.85");
+      setVol(Number.isFinite(vol) ? vol : 0.85);
+      if (state.current) renderPlayer();
+    } catch (err) {
+      const sub = $("load-sub");
+      if (sub) sub.textContent = String(err && err.message ? err.message : err);
+    }
+    setTimeout(hideLoader, 12000);
     try {
       await loadStations();
       renderPlayer();
-      $("loader").classList.add("off");
     } catch (err) {
-      $("load-sub").textContent = String(err.message || err);
+      const line = $("count-line");
+      if (line) line.textContent = String(err && err.message ? err.message : err);
+      if (!state.stations.length && (state.favs.length || state.recents.length)) {
+        state.mode = state.favs.length ? "fav" : "recent";
+        state.stations = (state.mode === "fav" ? state.favs : state.recents).slice();
+        try {
+          renderCountries();
+          renderList();
+        } catch (_) {}
+      }
+    } finally {
+      hideLoader();
     }
   }
   boot();

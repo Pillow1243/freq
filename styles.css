@@ -261,8 +261,9 @@ svg { display: block; width: 20px; height: 20px; fill: currentColor; }
 
 /* ——— STAGE ——— */
 .stage {
-  position: fixed; inset: 0; z-index: 28;
-  display: flex; flex-direction: column; align-items: center;
+  position: fixed; inset: 0; z-index: 50;
+  display: none;
+  flex-direction: column; align-items: center;
   padding: 18px 20px 28px;
   background:
     radial-gradient(ellipse at 50% 18%, rgba(255,43,214,0.16), transparent 42%),
@@ -271,7 +272,11 @@ svg { display: block; width: 20px; height: 20px; fill: currentColor; }
   backdrop-filter: blur(16px) saturate(1.2);
   overflow: auto;
 }
-.stage[hidden] { display: none; }
+.stage.open {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1;
+}
 .stage-handle {
   width: 46px; height: 5px; border-radius: 99px;
   background: rgba(255,255,255,0.22); margin: 4px 0 12px;

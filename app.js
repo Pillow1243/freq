@@ -442,10 +442,7 @@
     const b = $("clear-btn");
     if (b) b.hidden = !hasActiveFilters();
     const fb = $("filters-btn");
-    if (fb) {
-      const n = [state.langFilter, state.hd, state.wave && state.wave !== "fm", state.band].filter(Boolean).length;
-      fb.textContent = n ? t("filters") + " · " + n : t("filters");
-    }
+    if (fb) fb.classList.toggle("hot", hasActiveFilters());
   }
   function setGenre(tag) {
     state.mode = "browse";
@@ -1823,9 +1820,29 @@
     if (b) b.classList.toggle("on", !!state.filtersOpen);
     if (box) box.hidden = !state.filtersOpen;
   }
+  function closeFilters() {
+    state.filtersOpen = false;
+    syncFiltersBtn();
+  }
   function toggleFilters() {
+    if (!state.filtersOpen) closeSettings();
     state.filtersOpen = !state.filtersOpen;
     syncFiltersBtn();
+  }
+  function closeSettings() {
+    const el = $("settings");
+    if (el) el.hidden = true;
+    const b = $("settings-btn");
+    if (b) b.classList.remove("on");
+  }
+  function toggleSettings() {
+    const el = $("settings");
+    if (!el) return;
+    const open = el.hidden;
+    if (open) closeFilters();
+    el.hidden = !open;
+    const b = $("settings-btn");
+    if (b) b.classList.toggle("on", open);
   }
   async function loadDiscover() {
     const bag = {};
@@ -2314,10 +2331,11 @@
       else if (act === "newfolder") newFolder();
       else if (act === "addfolder") addToFolder();
       else if (act === "filters") toggleFilters();
+      else if (act === "settings") toggleSettings();
       else if (act === "clearf") clearFilters();
       else if (act === "near") goNear();
-      else if (act === "theme") toggleThemes();
-      else if (act === "wrap") toggleWrap();
+      else if (act === "theme") { closeSettings(); toggleThemes(); }
+      else if (act === "wrap") { closeSettings(); toggleWrap(); }
       else if (act === "voice") startVoice();
       else if (act === "sleeptog") cycleSleep();
       else if (act === "seeall") { state.homeAll = true; renderList(); const L=$("list"); if(L) L.scrollTop=0; }
@@ -2453,6 +2471,18 @@
     if (themesEl) {
       themesEl.addEventListener("click", function (e) {
         if (e.target.id === "themes") closeThemes();
+      });
+    }
+    const filtersEl = $("filters");
+    if (filtersEl) {
+      filtersEl.addEventListener("click", function (e) {
+        if (e.target.id === "filters") closeFilters();
+      });
+    }
+    const settingsEl = $("settings");
+    if (settingsEl) {
+      settingsEl.addEventListener("click", function (e) {
+        if (e.target.id === "settings") closeSettings();
       });
     }
     addEventListener("keydown", (e) => {

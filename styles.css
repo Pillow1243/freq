@@ -43,7 +43,59 @@ svg { display: block; width: 20px; height: 20px; fill: currentColor; }
 .grain { display: none; }
 
 .top, .countries, .list, .player, .credit, .toolbar, .waveband, .gstrip, .filters, .strips { position: relative; z-index: 2; }
-.top, .strips, .toolbar, .filters { flex: 0 0 auto; }
+.top, .slim, .toolbar, .filters { flex: 0 0 auto; }
+.icon-btn {
+  width: 42px; height: 42px; flex-shrink: 0;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); color: var(--text);
+  display: grid; place-items: center;
+}
+.icon-btn svg { width: 22px; height: 22px; }
+.icon-btn.on, .icon-btn.hot {
+  background: var(--acc); color: var(--ink); border-color: var(--acc);
+}
+.slim {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 18px 8px;
+}
+.drawer {
+  position: fixed; inset: 0; z-index: 46;
+  background: rgba(var(--bg-rgb),0.58);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0;
+}
+.drawer[hidden] { display: none; }
+.drawer-card {
+  width: min(740px, 100%);
+  max-height: min(88dvh, 860px);
+  overflow: auto;
+  background: var(--cabinet);
+  border: 1px solid var(--line);
+  border-radius: 28px 28px 0 0;
+  padding: 10px 14px 28px;
+  box-shadow: 0 -20px 60px rgba(0,0,0,0.35);
+}
+.drawer-handle {
+  width: 42px; height: 4px; border-radius: 99px;
+  background: rgba(255,255,255,0.18); margin: 4px auto 12px;
+}
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px; padding: 0 4px;
+}
+.drawer-head h3 { font-size: 20px; font-weight: 800; }
+.drawer-quick, .set-grid {
+  display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 4px 10px;
+}
+.set-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 6px; font-weight: 700;
+}
+.set-item {
+  width: 100%; text-align: start;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  border-radius: 16px; padding: 14px 16px; font-weight: 800; margin-bottom: 8px;
+}
 .top { display: flex; align-items: center; gap: 12px; padding: 16px 18px 8px; }
 .brand {
   display: flex; gap: 10px; align-items: center;
@@ -533,7 +585,7 @@ body.stage-open .player, body.stage-open .credit { visibility: hidden; pointer-e
 body.stand-on .player, body.stand-on .credit, body.stand-on .list,
 body.stand-on .top, body.stand-on .countries, body.stand-on .toolbar, body.stand-on .waveband,
 body.stand-on .stage, body.stand-on .folders, body.stand-on .gstrip, body.stand-on .filters,
-body.stand-on .strips,
+body.stand-on .strips, body.stand-on .drawer,
 body.stand-on .themes { visibility: hidden; pointer-events: none; }
 
 .map, .car { position: fixed; inset: 0; z-index: 52; }

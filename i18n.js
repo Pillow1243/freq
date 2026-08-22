@@ -101,6 +101,8 @@ window.I18N = {
     home: "خانه",
     genres: "سبک‌ها",
     places: "کشورها",
+    settings: "تنظیمات",
+    filterNet: "فیلتر شبکه",
     moods: "حال‌وهوا",
     clear: "پاک کردن",
     band: "باند",

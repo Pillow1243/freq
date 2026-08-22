@@ -398,9 +398,7 @@
     const s = todayPick();
     if (!s) return "";
     const fl = flag(s.countrycode);
-    const ico = s.favicon
-      ? `<img src="${s.favicon}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=ph></div>'">`
-      : `<div class="ph"></div>`;
+    const ico = artHtml(s);
     return `<section class="today">
       <button type="button" class="today-hit" data-play="${s.stationuuid}">
         ${ico}
@@ -507,24 +505,36 @@
       .join("");
   }
 
+  function phHtml(s) {
+    const h = hashHue((s && s.name) || "F");
+    const bg = `conic-gradient(from 210deg, hsl(${h} 82% 54%), hsl(${(h + 38) % 360} 72% 40%), #141418, hsl(${h} 82% 54%))`;
+    return `<div class="ph" style="background:${bg}">${esc(initials((s && s.name) || "F"))}</div>`;
+  }
+  function artHtml(s) {
+    const ph = phHtml(s);
+    if (s && s.favicon) {
+      return `<img src="${esc(s.favicon)}" alt="" referrerpolicy="no-referrer" onerror="this.hidden=true;if(this.nextElementSibling)this.nextElementSibling.hidden=false;">` +
+        ph.replace('class="ph"', 'class="ph" hidden');
+    }
+    return ph;
+  }
   function stationCard(s, rail) {
     const on = state.current && s.stationuuid === state.current.stationuuid ? "on" : "";
-    const ico = s.favicon
-      ? `<img src="${s.favicon}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=ph></div>'">`
-      : `<div class="ph"></div>`;
+    const live = on && state.playing ? '<span class="noweq" aria-hidden="true"><i></i><i></i><i></i></span>' : "";
+    const ico = artHtml(s);
     const tags = (s.tags || "").split(",").filter(Boolean).slice(0, 2).join(" · ");
     const fl = flag(s.countrycode);
     if (rail) {
       return `<button type="button" class="rail-card ${on}" data-play="${s.stationuuid}">
-        ${ico}
-        <div class="nm">${esc((s.name || "—").slice(0, 28))}</div>
+        <span class="rail-art">${ico}</span>
+        <div class="nm">${esc((s.name || "—").slice(0, 28))}${live}</div>
         <div class="meta">${esc(s.country || "")}</div>
       </button>`;
     }
     return `<div class="card ${on}" data-id="${s.stationuuid}">
       ${ico}
       <button type="button" class="card-hit" data-play="${s.stationuuid}">
-        <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}</div>
+        <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}${live}</div>
         <div class="meta">${esc(s.country || "")} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + esc(tags) : ""}</div>
       </button>
       <button type="button" class="info" data-info="${s.stationuuid}">i</button>
@@ -1520,9 +1530,12 @@
     c.style.height = h + "px";
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     const col = themeCols();
-    ctx.fillStyle = col.bg;
+    const wash = ctx.createRadialGradient(w * 0.5, h * 0.35, 20, w * 0.5, h * 0.4, Math.max(w, h) * 0.7);
+    wash.addColorStop(0, "rgba(" + col.accRgb + ",0.12)");
+    wash.addColorStop(1, col.bg);
+    ctx.fillStyle = wash;
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = "rgba(" + col.iceRgb + ",0.08)";
+    ctx.strokeStyle = "rgba(" + col.iceRgb + ",0.07)";
     for (let x = 0; x <= 12; x++) {
       ctx.beginPath(); ctx.moveTo((x / 12) * w, 0); ctx.lineTo((x / 12) * w, h); ctx.stroke();
     }
@@ -1533,9 +1546,15 @@
       const x = ((pt.lon + 180) / 360) * w;
       const y = ((90 - pt.lat) / 180) * h;
       const on = state.current && pt.s.stationuuid === state.current.stationuuid;
+      if (on) {
+        ctx.beginPath();
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(" + col.accRgb + ",0.2)";
+        ctx.fill();
+      }
       ctx.beginPath();
-      ctx.arc(x, y, on ? 5 : 2.2, 0, Math.PI * 2);
-      ctx.fillStyle = on ? "#ff4d2e" : "rgba(125,211,252,0.7)";
+      ctx.arc(x, y, on ? 5.5 : 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = on ? col.acc : "rgba(" + col.iceRgb + ",0.75)";
       ctx.fill();
     });
   }

@@ -548,6 +548,58 @@ body.stage-open .credit { visibility: hidden; pointer-events: none; }
   .vinyl.big { --sz: min(58vw, 200px); }
 }
 
+.presets {
+  display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
+  margin-top: 8px; position: relative; z-index: 1;
+}
+.presets button {
+  min-width: 42px; height: 28px; padding: 0 8px;
+  border: 1px solid #8a7020; border-radius: 3px;
+  background: linear-gradient(180deg, #3a2416, #1a1008);
+  color: var(--cream); font-family: var(--mono); font-size: 11px;
+}
+.presets button.on { background: var(--brass); color: #2a1810; }
+.presets button.has { color: var(--amber); }
+.rds {
+  font-family: var(--mono); font-size: 11px; color: #3a2416;
+  background: #efe0b8; border: 1px solid #8a7020;
+  padding: 2px 8px; margin-top: 6px; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis;
+  position: relative; z-index: 1;
+}
+.stage-meta .rds { background: rgba(239,224,184,0.9); }
+.clock {
+  font-family: var(--mono); font-size: 18px; color: var(--amber);
+  letter-spacing: 0.12em; margin-top: 2px;
+}
+.lamps { display: flex; justify-content: center; gap: 10px; margin-top: 8px; }
+.lamp {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+  color: #5a3a18; padding: 2px 8px; border: 1px solid #8a7020;
+  background: #1a1008; border-radius: 2px;
+}
+.lamp.on { color: #2a1810; background: #ffb020; box-shadow: 0 0 10px rgba(255,176,32,0.55); }
+.alarm-row, .io-row {
+  width: 100%; display: flex; flex-wrap: wrap; gap: 8px;
+  align-items: center; justify-content: center; margin-top: 10px;
+}
+.alarm-lab { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+#alarm-time {
+  background: #1a1008; color: var(--cream); border: 1px solid var(--line);
+  border-radius: 4px; padding: 6px 8px; font-family: var(--mono);
+}
+.stat-line { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 4px; }
+.toast {
+  position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%);
+  z-index: 60; background: #efe0b8; color: #3a2416;
+  border: 2px solid #8a7020; border-radius: 4px;
+  padding: 8px 14px; font-size: 13px; font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+.toast[hidden] { display: none; }
+.keys-btn { height: 28px; font-size: 11px; }
+.list { padding-bottom: 176px; }
+
 html[dir="ltr"] .play .ic-play { transform: none; }
 html[dir="rtl"] .p-ctrls .ghost[data-act="prev"] svg,
 html[dir="rtl"] .p-ctrls .ghost[data-act="next"] svg,

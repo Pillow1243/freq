@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Special+Elite&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=4" />
+    <link rel="stylesheet" href="./styles.css?v=5" />
   </head>
   <body>
     <canvas id="viz"></canvas>
@@ -47,9 +47,11 @@
     <div class="countries" id="countries"></div>
     <div class="countries" id="genres"></div>
     <div class="countries" id="langs"></div>
+    <div class="countries" id="bands"></div>
     <div class="toolbar">
       <div class="count-line" id="count-line"></div>
       <div class="sorts" id="sorts"></div>
+      <button type="button" class="ghost wide keys-btn" data-act="help" data-i18n="keys">کلیدها</button>
     </div>
 
     <main class="list" id="list"></main>
@@ -103,6 +105,8 @@
           </button>
         </div>
       </div>
+      <div class="rds" id="p-rds"></div>
+      <div class="presets" id="presets"></div>
     </footer>
 
     <div id="stage" class="stage" aria-hidden="true">
@@ -116,7 +120,8 @@
           </button>
           <div class="stage-brand">
             <div class="word" dir="ltr">FREQ</div>
-            <div class="tag" id="s-live" data-i18n="nowplaying">در حال پخش</div>
+            <div class="clock" id="s-clock">--:--</div>
+            <div class="tag" id="s-date"></div>
           </div>
           <button type="button" class="ghost fav-btn" data-act="fav" id="s-fav" data-i18n-aria="fav">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.2 10.4 18.8C5.4 14.3 2 11.3 2 7.6 2 4.6 4.4 2.2 7.4 2.2c1.7 0 3.3.8 4.6 2.1 1.3-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.4 6.7-8.4 11.2L12 20.2z"/></svg>
@@ -141,6 +146,10 @@
             <div class="vu"><b>L</b><span><i></i></span></div>
             <div class="vu"><b>R</b><span><i></i></span></div>
           </div>
+          <div class="lamps">
+            <span class="lamp" id="lamp-stereo" data-i18n="stereo">استریو</span>
+            <span class="lamp" id="lamp-tuned" data-i18n="tuned">کوک</span>
+          </div>
         </div>
 
         <div class="stage-eq" id="s-eq" aria-hidden="true">
@@ -156,7 +165,10 @@
           <h2 id="s-name">—</h2>
           <p id="s-sub" class="sub"></p>
           <p id="s-time" class="elapsed" dir="ltr">00:00:00</p>
+          <p class="rds" id="s-rds"></p>
+          <p class="stat-line" id="s-stats"></p>
         </div>
+        <div class="presets" id="s-presets"></div>
 
         <div class="stage-ctrls">
           <button type="button" class="ghost" data-act="rand" data-i18n-aria="random">
@@ -188,6 +200,20 @@
           <div id="sleep-chips" class="chips"></div>
           <span id="sleep-left" class="sleep-left" dir="ltr"></span>
         </div>
+        <div class="alarm-row">
+          <label class="alarm-lab">
+            <input id="alarm-on" type="checkbox" />
+            <span data-i18n="alarm">زنگ</span>
+          </label>
+          <input id="alarm-time" type="time" value="07:00" />
+          <button type="button" class="ghost wide" data-act="share" data-i18n="share">اشتراک</button>
+          <button type="button" class="ghost wide" data-act="vote" data-i18n="vote">رأی بده</button>
+        </div>
+        <div class="io-row">
+          <button type="button" class="ghost wide" data-act="export" data-i18n="export">خروجی پسند</button>
+          <button type="button" class="ghost wide" data-act="import" data-i18n="import">ورود پسند</button>
+          <input id="import-file" type="file" accept="application/json" hidden />
+        </div>
       </div>
     </div>
 
@@ -205,9 +231,23 @@
       <div class="sheet-actions">
         <button id="sh-play" class="play" type="button" data-i18n="play">پخش</button>
         <button id="sh-similar" class="ghost wide" type="button" data-i18n="similar">مشابه</button>
+        <button id="sh-share" class="ghost wide" type="button" data-i18n="share">اشتراک</button>
+        <button id="sh-vote" class="ghost wide" type="button" data-i18n="vote">رأی بده</button>
         <a id="sh-home" class="ghost wide" target="_blank" rel="noopener" hidden data-i18n="homepage">سایت ایستگاه</a>
       </div>
     </div>
+
+    <div id="help" class="about" hidden>
+      <div class="about-card">
+        <div class="word" dir="ltr">FREQ</div>
+        <h3 data-i18n="help">راهنما</h3>
+        <p class="about-body" data-i18n="helpBody"></p>
+        <p class="about-body" data-i18n="holdSave">نگه دار تا ذخیره شود</p>
+        <button id="help-close" type="button" data-i18n="close">بستن</button>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
 
     <div id="about" class="about" hidden>
       <div class="about-card">
@@ -231,7 +271,7 @@
     </div>
 
     <audio id="audio"></audio>
-    <script src="./i18n.js?v=4"></script>
-    <script src="./app.js?v=4"></script>
+    <script src="./i18n.js?v=5"></script>
+    <script src="./app.js?v=5"></script>
   </body>
 </html>

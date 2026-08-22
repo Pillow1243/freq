@@ -60,6 +60,14 @@
     { id: "spanish", fa: "اسپانیایی", en: "Spanish" },
     { id: "russian", fa: "روسی", en: "Russian" },
   ];
+  const BANDS = [
+    { tag: "", fa: "همهٔ موج‌ها", en: "All bands" },
+    { tag: "chillout", fa: "شب", en: "Night" },
+    { tag: "news", fa: "خبر", en: "News" },
+    { tag: "jazz", fa: "جاز", en: "Jazz" },
+    { tag: "persian", fa: "پارسی", en: "Persian" },
+    { tag: "classical", fa: "کلاسیک", en: "Classical" },
+  ];
 
   const state = {
     lang: localStorage.getItem("freq-lang") || "fa",
@@ -90,7 +98,16 @@
     stageOpen: false,
     sheet: null,
     mhz: 96,
+    presets: padPresets(safeParse("freq-presets", [])),
+    alarm: safeParse("freq-alarm", { on: false, hh: 7, mm: 0, last: "" }),
+    stats: safeParse("freq-stats", { ms: 0, hits: {} }),
+    band: "",
   };
+  function padPresets(arr) {
+    const out = Array.isArray(arr) ? arr.slice(0, 6) : [];
+    while (out.length < 6) out.push(null);
+    return out;
+  }
 
   function safeParse(key, fallback) {
     try {
@@ -131,8 +148,12 @@
     renderLangs();
     renderSorts();
     renderSleep();
+    renderBands();
+    renderPresets();
     renderList();
     renderPlayer();
+    syncAlarmUi();
+    tickClock();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
@@ -239,6 +260,7 @@
     const extra = [
       `<button type="button" class="${state.mode === "fav" ? "on" : ""}" data-mode="fav">${t("fav")}</button>`,
       `<button type="button" class="${state.mode === "recent" ? "on" : ""}" data-mode="recent">${t("recent")}</button>`,
+      `<button type="button" data-here="1">${t("here")}</button>`,
     ].join("");
     $("countries").innerHTML =
       extra +
@@ -456,6 +478,8 @@
       setText("p-freq", "");
       setText("s-freq", "");
       setNeedle(96);
+      setRds(null);
+      renderPresets();
       return;
     }
 
@@ -476,6 +500,8 @@
     setArt($("s-ico"), $("s-ph"), s);
     if ($("p-vinyl")) $("p-vinyl").classList.toggle("live", state.playing);
     if ($("s-vinyl")) $("s-vinyl").classList.toggle("live", state.playing);
+    setRds(s);
+    renderPresets();
     setMediaSession(s);
   }
 
@@ -524,6 +550,8 @@
     state.listenMs = 0;
     state.listenTick = 0;
     pushRecent(station);
+    bumpStats(station);
+    startStatic();
     audio.pause();
     audio.removeAttribute("src");
     audio.src = station.url_resolved || station.url || "";
@@ -539,11 +567,13 @@
         state.fails = 0;
         state.playing = true;
         state.status = "";
+        stopStatic();
         clockListen(true);
         renderPlayer();
       }).catch(() => {
         if (gen !== state.playGen) return;
         state.ignoreErr = false;
+        stopStatic();
         failSkip();
       });
     }
@@ -555,6 +585,7 @@
   function failSkip() {
     state.fails = (state.fails || 0) + 1;
     state.playing = false;
+    stopStatic();
     clockListen(false);
     state.status = t("failed");
     renderPlayer();
@@ -652,6 +683,312 @@
     }
     document.body.classList.remove("stage-open");
     renderPlayer();
+  }
+
+
+  function hereCC() {
+    const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toLowerCase();
+    if (tz.indexOf("tehran") >= 0) return "IR";
+    if (tz.indexOf("berlin") >= 0 || tz.indexOf("frankfurt") >= 0) return "DE";
+    const map = {
+      "asia/tehran": "IR",
+      "europe/berlin": "DE",
+      "europe/paris": "FR",
+      "europe/london": "GB",
+      "america/new_york": "US",
+      "america/los_angeles": "US",
+      "europe/istanbul": "TR",
+      "asia/tokyo": "JP",
+      "asia/dubai": "AE",
+    };
+    return map[tz] || "";
+  }
+  function goHere() {
+    const cc = hereCC();
+    state.mode = "browse";
+    state.cc = cc;
+    state.q = "";
+    if ($("q")) $("q").value = "";
+    loadStations().catch(function () {});
+  }
+  function renderBands() {
+    const box = $("bands");
+    if (!box) return;
+    box.innerHTML = BANDS.map(function (g) {
+      const on = state.mode === "browse" && g.tag === state.band ? "on" : "";
+      const label = state.lang === "fa" ? g.fa : g.en;
+      return '<button type="button" class="' + on + '" data-band="' + g.tag + '">' + label + "</button>";
+    }).join("");
+  }
+  function renderPresets() {
+    const html = state.presets
+      .map(function (s, i) {
+        const on = s && state.current && s.stationuuid === state.current.stationuuid ? "on" : "";
+        const has = s ? "has" : "";
+        const name = s ? (s.name || "P" + (i + 1)).slice(0, 10) : "P" + (i + 1);
+        return (
+          '<button type="button" class="' +
+          on +
+          " " +
+          has +
+          '" data-preset="' +
+          i +
+          '" title="' +
+          esc(s ? s.name : t("emptyPreset")) +
+          '">' +
+          (i + 1) +
+          (s ? " · " + esc(name) : "") +
+          "</button>"
+        );
+      })
+      .join("");
+    ["presets", "s-presets"].forEach(function (id) {
+      const el = $(id);
+      if (el) el.innerHTML = html;
+    });
+  }
+  function savePreset(i) {
+    if (!state.current) return;
+    state.presets[i] = state.current;
+    try {
+      localStorage.setItem("freq-presets", JSON.stringify(state.presets));
+    } catch (_) {}
+    renderPresets();
+    toast(t("saved") + " P" + (i + 1));
+  }
+  function playPreset(i) {
+    const s = state.presets[i];
+    if (s) play(s);
+    else toast(t("emptyPreset"));
+  }
+  let noise = { ctx: null, src: null };
+  function startStatic() {
+    stopStatic();
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      const n = 2 * ctx.sampleRate;
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 1400;
+      const g = ctx.createGain();
+      g.gain.value = 0.045;
+      src.connect(f);
+      f.connect(g);
+      g.connect(ctx.destination);
+      src.start();
+      noise = { ctx: ctx, src: src };
+    } catch (_) {}
+  }
+  function stopStatic() {
+    try {
+      if (noise.src) noise.src.stop();
+    } catch (_) {}
+    try {
+      if (noise.ctx) noise.ctx.close();
+    } catch (_) {}
+    noise = { ctx: null, src: null };
+  }
+  function toast(msg) {
+    const el = $("toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () {
+      el.hidden = true;
+    }, 1800);
+  }
+  function toJalali(d) {
+    const gy = d.getFullYear();
+    const gm = d.getMonth() + 1;
+    const gd = d.getDate();
+    const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let jy = gy <= 1600 ? 0 : 979;
+    let gy2 = gy <= 1600 ? gy - 621 : gy - 1600;
+    const gy2e = gm > 2 ? gy2 + 1 : gy2;
+    let days =
+      365 * gy2 +
+      Math.floor((gy2e + 3) / 4) -
+      Math.floor((gy2e + 99) / 100) +
+      Math.floor((gy2e + 399) / 400) -
+      80 +
+      gd +
+      g_d_m[gm - 1];
+    jy += 33 * Math.floor(days / 12053);
+    days %= 12053;
+    jy += 4 * Math.floor(days / 1461);
+    days %= 1461;
+    if (days > 365) {
+      jy += Math.floor((days - 1) / 365);
+      days = (days - 1) % 365;
+    }
+    const jm = days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+    const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
+    return jy + "/" + String(jm).padStart(2, "0") + "/" + String(jd).padStart(2, "0");
+  }
+  function tickClock() {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    setText("s-clock", hh + ":" + mm);
+    const date = state.lang === "fa" ? toJalali(now) : now.toISOString().slice(0, 10);
+    setText("s-date", date);
+    const st = dict().stats;
+    if (typeof st === "function") {
+      const hours = ((state.stats.ms || 0) / 3600000).toFixed(1);
+      const n = Object.keys(state.stats.hits || {}).length;
+      setText("s-stats", st(hours, n));
+    }
+    const stereo = $("lamp-stereo");
+    const tuned = $("lamp-tuned");
+    if (stereo) stereo.classList.toggle("on", !!state.playing);
+    if (tuned) tuned.classList.toggle("on", !!state.playing && !state.status);
+  }
+  function bumpStats(station) {
+    if (!state.stats.hits) state.stats.hits = {};
+    if (station && station.stationuuid) state.stats.hits[station.stationuuid] = 1;
+    try {
+      localStorage.setItem("freq-stats", JSON.stringify(state.stats));
+    } catch (_) {}
+  }
+  function flushListen() {
+    if (state.playing && state.listenTick) {
+      state.stats.ms = (state.stats.ms || 0) + 1000;
+    }
+  }
+  function saveAlarm() {
+    try {
+      localStorage.setItem("freq-alarm", JSON.stringify(state.alarm));
+    } catch (_) {}
+  }
+  function syncAlarmUi() {
+    const on = $("alarm-on");
+    const tm = $("alarm-time");
+    if (on) on.checked = !!state.alarm.on;
+    if (tm) {
+      const hh = String(state.alarm.hh || 0).padStart(2, "0");
+      const mm = String(state.alarm.mm || 0).padStart(2, "0");
+      tm.value = hh + ":" + mm;
+    }
+  }
+  function readAlarmUi() {
+    const on = $("alarm-on");
+    const tm = $("alarm-time");
+    if (on) state.alarm.on = !!on.checked;
+    if (tm && tm.value) {
+      const p = tm.value.split(":");
+      state.alarm.hh = Number(p[0]) || 0;
+      state.alarm.mm = Number(p[1]) || 0;
+    }
+    saveAlarm();
+  }
+  function checkAlarm() {
+    if (!state.alarm || !state.alarm.on) return;
+    const now = new Date();
+    if (now.getHours() !== Number(state.alarm.hh) || now.getMinutes() !== Number(state.alarm.mm)) return;
+    const key = now.getFullYear() + "-" + now.getMonth() + "-" + now.getDate();
+    if (state.alarm.last === key) return;
+    state.alarm.last = key;
+    saveAlarm();
+    const s = state.presets[0] || state.current || state.favs[0] || state.stations[0];
+    if (s) play(s);
+    openStage();
+  }
+  function stationUrl(s) {
+    const base = location.origin + location.pathname.replace(/index\.html$/, "");
+    return base + "?s=" + encodeURIComponent(s.stationuuid);
+  }
+  function shareStation(s) {
+    if (!s) return;
+    const url = stationUrl(s);
+    const title = (s.name || "FREQ") + " — FREQ";
+    if (navigator.share) {
+      navigator.share({ title: title, text: title, url: url }).catch(function () {});
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        toast(t("shared"));
+      });
+    } else {
+      toast(url);
+    }
+  }
+  function voteStation(s) {
+    if (!s) return;
+    getJSON("/json/vote/" + s.stationuuid)
+      .then(function () {
+        toast(t("voted"));
+      })
+      .catch(function () {
+        toast(t("voted"));
+      });
+  }
+  function exportFavs() {
+    const blob = new Blob(
+      [JSON.stringify({ favs: state.favs, presets: state.presets, v: 1 }, null, 2)],
+      { type: "application/json" }
+    );
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "freq-favs.json";
+    a.click();
+    setTimeout(function () {
+      URL.revokeObjectURL(a.href);
+    }, 500);
+  }
+  function importFavs(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+      try {
+        const data = JSON.parse(String(reader.result || "{}"));
+        if (Array.isArray(data.favs)) {
+          state.favs = data.favs.slice(0, 200);
+          saveFavs();
+        }
+        if (Array.isArray(data.presets)) {
+          state.presets = padPresets(data.presets);
+          localStorage.setItem("freq-presets", JSON.stringify(state.presets));
+        }
+        renderPresets();
+        renderList();
+        toast(t("fav"));
+      } catch (_) {}
+    };
+    reader.readAsText(file);
+  }
+  function openHelp() {
+    const el = $("help");
+    if (el) el.hidden = false;
+  }
+  function closeHelp() {
+    const el = $("help");
+    if (el) el.hidden = true;
+  }
+  function setRds(s) {
+    const tags = s && s.tags ? String(s.tags).split(",").filter(Boolean).slice(0, 8).join("  ·  ") : "";
+    const line = s ? [s.name, s.country, s.codec, tags].filter(Boolean).join("   ·   ") : "";
+    setText("p-rds", line);
+    setText("s-rds", line);
+  }
+  async function applyDeepLink() {
+    const sid = new URLSearchParams(location.search).get("s");
+    if (!sid) return;
+    let s = findStation(sid);
+    if (!s) {
+      try {
+        const data = await getJSON("/json/stations/byuuid/" + encodeURIComponent(sid));
+        if (data && data[0]) s = data[0];
+      } catch (_) {}
+    }
+    if (s) play(s);
   }
 
   function viz() {
@@ -787,14 +1124,14 @@
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
         ctx.lineTo(cx + Math.cos(a) * (r0 + pulse), cy + Math.sin(a) * (r0 + pulse));
-        ctx.strokeStyle = i % 2 ? "rgba(255,43,214,0.72)" : "rgba(122,240,255,0.55)";
+        ctx.strokeStyle = i % 2 ? "rgba(180,35,24,0.7)" : "rgba(201,162,39,0.55)";
         ctx.lineWidth = 2.2;
         ctx.lineCap = "round";
         ctx.stroke();
       }
       ctx.beginPath();
       ctx.arc(cx, cy, r0 - 6, 0, Math.PI * 2);
-      ctx.strokeStyle = state.playing ? "rgba(255,43,214,0.28)" : "rgba(255,255,255,0.08)";
+      ctx.strokeStyle = state.playing ? "rgba(255,176,32,0.35)" : "rgba(90,56,24,0.25)";
       ctx.lineWidth = 2;
       ctx.stroke();
       requestAnimationFrame(frame);
@@ -807,6 +1144,7 @@
       state.stations.find((x) => x.stationuuid === id) ||
       state.favs.find((x) => x.stationuuid === id) ||
       state.recents.find((x) => x.stationuuid === id) ||
+      (state.presets || []).find((x) => x && x.stationuuid === id) ||
       (state.current && state.current.stationuuid === id ? state.current : null)
     );
   }
@@ -835,6 +1173,10 @@
       b.addEventListener("click", () => setLang(b.dataset.lang));
     });
     $("countries").addEventListener("click", (e) => {
+      if (e.target.closest("[data-here]")) {
+        goHere();
+        return;
+      }
       const modeBtn = e.target.closest("[data-mode]");
       if (modeBtn) {
         state.mode = modeBtn.dataset.mode;
@@ -856,6 +1198,18 @@
       state.tag = btn.dataset.tag;
       loadStations().catch(() => {});
     });
+    const bands = $("bands");
+    if (bands) {
+      bands.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-band]");
+        if (!btn) return;
+        state.mode = "browse";
+        state.band = btn.dataset.band || "";
+        state.tag = state.band;
+        loadStations().catch(function () {});
+        renderBands();
+      });
+    }
     $("langs").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-langf]");
       if (!btn) return;
@@ -908,6 +1262,27 @@
     $("sh-play").addEventListener("click", () => {
       if (state.sheet) play(state.sheet);
     });
+    if ($("sh-share"))
+      $("sh-share").addEventListener("click", () => {
+        shareStation(state.sheet || state.current);
+      });
+    if ($("sh-vote"))
+      $("sh-vote").addEventListener("click", () => {
+        voteStation(state.sheet || state.current);
+      });
+    if ($("help-close")) $("help-close").addEventListener("click", closeHelp);
+    if ($("help"))
+      $("help").addEventListener("click", (e) => {
+        if (e.target.id === "help") closeHelp();
+      });
+    if ($("alarm-on")) $("alarm-on").addEventListener("change", readAlarmUi);
+    if ($("alarm-time")) $("alarm-time").addEventListener("change", readAlarmUi);
+    if ($("import-file"))
+      $("import-file").addEventListener("change", (e) => {
+        const f = e.target.files && e.target.files[0];
+        importFavs(f);
+        e.target.value = "";
+      });
     $("sh-similar").addEventListener("click", () => {
       const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0];
       if (!tag) return;
@@ -931,8 +1306,47 @@
       else if (act === "expand") openStage();
       else if (act === "collapse") closeStage();
       else if (act === "mute") toggleMute();
+      else if (act === "share") shareStation(state.current);
+      else if (act === "vote") voteStation(state.current);
+      else if (act === "export") exportFavs();
+      else if (act === "import") {
+        const f = $("import-file");
+        if (f) f.click();
+      }
+      else if (act === "help") openHelp();
     }
     document.addEventListener("click", onAct);
+    document.addEventListener("click", function (e) {
+      const btn = e.target.closest("[data-preset]");
+      if (!btn) return;
+      if (savedHold) {
+        savedHold = false;
+        e.preventDefault();
+        return;
+      }
+      playPreset(Number(btn.dataset.preset));
+    });
+    let holdT = 0;
+    let savedHold = false;
+    document.addEventListener("pointerdown", function (e) {
+      const btn = e.target.closest("[data-preset]");
+      if (!btn) return;
+      const i = Number(btn.dataset.preset);
+      savedHold = false;
+      holdT = setTimeout(function () {
+        savePreset(i);
+        savedHold = true;
+        holdT = 0;
+      }, 650);
+    });
+    document.addEventListener("pointerup", function () {
+      if (holdT) clearTimeout(holdT);
+      holdT = 0;
+    });
+    document.addEventListener("pointercancel", function () {
+      if (holdT) clearTimeout(holdT);
+      holdT = 0;
+    });
     const chips = $("sleep-chips");
     if (chips) {
       chips.addEventListener("click", (e) => {
@@ -1003,6 +1417,17 @@
       if (e.key === "p" || e.key === "P") playRel(-1);
       if (e.key === "r" || e.key === "R") playRandom();
       if (e.key === "f" || e.key === "F") toggleFav(state.current);
+      if (e.key === "s" || e.key === "S") shareStation(state.current);
+      if (e.key === "?" || e.key === "h" || e.key === "H") {
+        if (e.key === "h" || e.key === "H") goHere();
+        else openHelp();
+      }
+      if (e.key === "?") openHelp();
+      if (e.key >= "1" && e.key <= "6") {
+        const i = Number(e.key) - 1;
+        if (e.shiftKey) savePreset(i);
+        else playPreset(i);
+      }
     });
     if ("mediaSession" in navigator) {
       try {
@@ -1027,6 +1452,14 @@
         if ($("s-time")) $("s-time").textContent = fmtTime(listenElapsed());
         updateSleepLeft();
       }
+      if (state.playing) {
+        flushListen();
+        try {
+          localStorage.setItem("freq-stats", JSON.stringify(state.stats));
+        } catch (_) {}
+      }
+      tickClock();
+      checkAlarm();
     }, 1000);
   }
 
@@ -1052,6 +1485,9 @@
     try {
       await loadStations();
       renderPlayer();
+      renderPresets();
+      tickClock();
+      await applyDeepLink();
     } catch (err) {
       const line = $("count-line");
       if (line) line.textContent = String(err && err.message ? err.message : err);

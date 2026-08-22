@@ -1,13 +1,13 @@
 {
   "name": "FREQ — Mobin.A",
   "short_name": "FREQ",
-  "description": "Valve radio of the planet. Made by Mobin.A",
+  "description": "Live world radio. Made by Mobin.A",
   "id": "./",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#1c110b",
-  "theme_color": "#2a1810",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
   "lang": "fa",
   "dir": "auto",
   "icons": [

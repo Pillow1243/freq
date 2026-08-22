@@ -111,6 +111,11 @@
     userVol: Number(localStorage.getItem("freq-vol") || "0.85") || 0.85,
     weather: "",
     fadeIv: 0,
+    folders: safeParse("freq-folders", []),
+    folderId: "",
+    mapOpen: false,
+    carOpen: false,
+    mapPts: [],
   };
   function padPresets(arr) {
     const out = Array.isArray(arr) ? arr.slice(0, 6) : [];
@@ -160,6 +165,7 @@
     renderBands();
     renderWaves();
     renderPresets();
+    renderFolders();
     syncHdBtn();
     renderList();
     renderPlayer();
@@ -222,11 +228,22 @@
 
   async function loadStations(append) {
     if (state.loadingMore) return;
-    if (state.mode === "fav" || state.mode === "recent") {
-      state.stations = (state.mode === "fav" ? state.favs : state.recents).slice();
+    if (state.mode === "fav" || state.mode === "recent" || state.mode === "folder") {
+      if (state.mode === "folder") {
+        const f = (state.folders || []).find(function (x) { return x.id === state.folderId; });
+        const ids = (f && f.ids) || [];
+        state.stations = ids.map(function (id) {
+          return state.favs.find(function (s) { return s.stationuuid === id; })
+            || state.recents.find(function (s) { return s.stationuuid === id; })
+            || null;
+        }).filter(Boolean);
+      } else {
+        state.stations = (state.mode === "fav" ? state.favs : state.recents).slice();
+      }
       state.hasMore = false;
       renderCountries();
       renderGenres();
+      renderFolders();
       renderList();
       return;
     }
@@ -394,7 +411,7 @@
     const name = (station && station.name) || "FREQ";
     const h = hashHue(name);
     el.textContent = initials(name);
-    el.style.background = `conic-gradient(from 210deg, hsl(${(h % 40) + 22} 70% 46%), hsl(32 78% 36%), #1a1008, hsl(${(h % 40) + 28} 68% 44%))`;
+    el.style.background = `conic-gradient(from 200deg, hsl(${h} 80% 52%), hsl(${(h + 40) % 360} 70% 42%), #18181b, hsl(${h} 80% 52%))`;
   }
   function setArt(img, ph, station) {
     if (!img || !ph) return;
@@ -522,6 +539,10 @@
     setRds(s);
     renderPresets();
     setMediaSession(s);
+    setText("car-name", name);
+    setText("car-sub", sub);
+    const car = $("car");
+    if (car) car.classList.toggle("on-air", state.playing);
   }
 
   function updateSleepLeft() {
@@ -965,7 +986,7 @@
   }
   function exportFavs() {
     const blob = new Blob(
-      [JSON.stringify({ favs: state.favs, presets: state.presets, v: 1 }, null, 2)],
+      [JSON.stringify({ favs: state.favs, presets: state.presets, folders: state.folders, v: 2 }, null, 2)],
       { type: "application/json" }
     );
     const a = document.createElement("a");
@@ -989,6 +1010,11 @@
         if (Array.isArray(data.presets)) {
           state.presets = padPresets(data.presets);
           localStorage.setItem("freq-presets", JSON.stringify(state.presets));
+        }
+        if (Array.isArray(data.folders)) {
+          state.folders = data.folders;
+          saveFolders();
+          renderFolders();
         }
         renderPresets();
         renderList();
@@ -1237,6 +1263,149 @@
     window.open(url, "_blank", "noopener");
   }
 
+
+  function saveFolders() {
+    try { localStorage.setItem("freq-folders", JSON.stringify(state.folders || [])); } catch (_) {}
+  }
+  function renderFolders() {
+    const box = $("folders");
+    if (!box) return;
+    const items = (state.folders || []).map(function (f) {
+      const on = state.mode === "folder" && state.folderId === f.id ? "on" : "";
+      return '<button type="button" class="' + on + '" data-folder="' + f.id + '">' + esc(f.name) + "</button>";
+    }).join("");
+    box.innerHTML = items;
+  }
+  function newFolder() {
+    const inp = $("folder-name");
+    const name = ((inp && inp.value) || "").trim();
+    if (!name) { toast(t("folderPh")); return; }
+    const id = "f" + Date.now().toString(36);
+    state.folders = (state.folders || []).concat([{ id: id, name: name, ids: [] }]).slice(-20);
+    saveFolders();
+    if (inp) inp.value = "";
+    renderFolders();
+    toast(t("saved"));
+  }
+  function addToFolder() {
+    if (!state.current) return;
+    const list = state.folders || [];
+    if (!list.length) { toast(t("noFolder")); return; }
+    const f = list.find(function (x) { return x.id === state.folderId; }) || list[0];
+    if (f.ids.indexOf(state.current.stationuuid) < 0) f.ids.push(state.current.stationuuid);
+    if (!isFav(state.current.stationuuid)) {
+      state.favs = [state.current].concat(state.favs).slice(0, 200);
+      saveFavs();
+    }
+    saveFolders();
+    renderFolders();
+    toast(t("addedFolder"));
+  }
+  function openFolder(id) {
+    state.mode = "folder";
+    state.folderId = id;
+    loadStations().catch(function () {});
+  }
+  function toggleMap() {
+    if (state.mapOpen) closeMap();
+    else openMap();
+  }
+  function closeMap() {
+    state.mapOpen = false;
+    const el = $("map");
+    if (el) el.hidden = true;
+  }
+  async function openMap() {
+    state.mapOpen = true;
+    closeCar();
+    const el = $("map");
+    if (el) el.hidden = false;
+    await loadMapPts();
+    drawMap();
+  }
+  async function loadMapPts() {
+    let pts = (state.stations || []).filter(function (s) {
+      return s.geo_lat && s.geo_long;
+    }).map(function (s) {
+      return { lat: Number(s.geo_lat), lon: Number(s.geo_long), s: s };
+    });
+    if (pts.length < 40) {
+      try {
+        const extra = await getJSON("/json/stations/search?hidebroken=true&is_https=true&has_geo_info=true&limit=300&order=clickcount&reverse=true");
+        const seen = {};
+        pts.forEach(function (p) { seen[p.s.stationuuid] = 1; });
+        (extra || []).forEach(function (st) {
+          if (seen[st.stationuuid] || !st.geo_lat) return;
+          pts.push({ lat: Number(st.geo_lat), lon: Number(st.geo_long), s: st });
+        });
+      } catch (_) {}
+    }
+    state.mapPts = pts.slice(0, 400);
+  }
+  function drawMap() {
+    const c = $("map-c");
+    if (!c || !c.getContext) return;
+    const ctx = c.getContext("2d");
+    const host = c.parentElement;
+    const w = (host && host.clientWidth) || innerWidth;
+    const h = Math.max(280, ((host && host.clientHeight) || innerHeight) - 90);
+    c.width = w * devicePixelRatio;
+    c.height = h * devicePixelRatio;
+    c.style.width = w + "px";
+    c.style.height = h + "px";
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.fillStyle = "#09090b";
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "rgba(255,255,255,0.04)";
+    for (let x = 0; x <= 12; x++) {
+      ctx.beginPath(); ctx.moveTo((x / 12) * w, 0); ctx.lineTo((x / 12) * w, h); ctx.stroke();
+    }
+    for (let y = 0; y <= 6; y++) {
+      ctx.beginPath(); ctx.moveTo(0, (y / 6) * h); ctx.lineTo(w, (y / 6) * h); ctx.stroke();
+    }
+    (state.mapPts || []).forEach(function (pt) {
+      const x = ((pt.lon + 180) / 360) * w;
+      const y = ((90 - pt.lat) / 180) * h;
+      const on = state.current && pt.s.stationuuid === state.current.stationuuid;
+      ctx.beginPath();
+      ctx.arc(x, y, on ? 5 : 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = on ? "#ff4d2e" : "rgba(125,211,252,0.7)";
+      ctx.fill();
+    });
+  }
+  function hitMap(ev) {
+    const c = $("map-c");
+    if (!c) return;
+    const r = c.getBoundingClientRect();
+    const x = ev.clientX - r.left;
+    const y = ev.clientY - r.top;
+    let best = null;
+    let bestD = 18;
+    (state.mapPts || []).forEach(function (pt) {
+      const px = ((pt.lon + 180) / 360) * r.width;
+      const py = ((90 - pt.lat) / 180) * r.height;
+      const d = Math.hypot(px - x, py - y);
+      if (d < bestD) { bestD = d; best = pt; }
+    });
+    if (best) play(best.s);
+  }
+  function toggleCar() {
+    if (state.carOpen) closeCar();
+    else openCar();
+  }
+  function openCar() {
+    state.carOpen = true;
+    closeMap();
+    const el = $("car");
+    if (el) el.hidden = false;
+    renderPlayer();
+  }
+  function closeCar() {
+    state.carOpen = false;
+    const el = $("car");
+    if (el) el.hidden = true;
+  }
+
   function viz() {
     const c = $("viz");
     if (!c || !c.getContext) return;
@@ -1262,27 +1431,27 @@
       t += state.playing ? 0.018 : 0.006;
       const w = innerWidth;
       const h = innerHeight;
-      ctx.fillStyle = "rgba(22,14,9,0.22)";
+      ctx.fillStyle = "rgba(9,9,11,0.22)";
       ctx.fillRect(0, 0, w, h);
       const cx = w / 2;
       const cy = h * 0.38;
       const lamp = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w, h) * 0.55);
-      lamp.addColorStop(0, state.playing ? "rgba(255,140,40,0.16)" : "rgba(201,162,39,0.07)");
-      lamp.addColorStop(1, "rgba(22,14,9,0)");
+      lamp.addColorStop(0, state.playing ? "rgba(255,77,46,0.14)" : "rgba(125,211,252,0.06)");
+      lamp.addColorStop(1, "rgba(9,9,11,0)");
       ctx.fillStyle = lamp;
       ctx.fillRect(0, 0, w, h);
       for (let i = 7; i >= 1; i--) {
         const r = 28 + i * 38 + Math.sin(t * 1.4 + i) * (state.playing ? 10 : 3);
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = i % 2 ? `rgba(255,176,32,${0.05 + i * 0.02})` : `rgba(201,162,39,${0.04 + i * 0.015})`;
+        ctx.strokeStyle = i % 2 ? `rgba(255,77,46,${0.05 + i * 0.02})` : `rgba(125,211,252,${0.04 + i * 0.015})`;
         ctx.lineWidth = 1.4;
         ctx.stroke();
       }
       ctx.beginPath();
       ctx.arc(cx, cy, 7 + (state.playing ? 3 : 0), 0, Math.PI * 2);
-      ctx.fillStyle = state.playing ? "#ff6a1a" : "#c9a227";
-      ctx.shadowColor = state.playing ? "#ff6a1a" : "#c9a227";
+      ctx.fillStyle = state.playing ? "#ff4d2e" : "#7dd3fc";
+      ctx.shadowColor = state.playing ? "#ff4d2e" : "#7dd3fc";
       ctx.shadowBlur = 16;
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -1291,7 +1460,7 @@
         if (m.y < 0) m.y = 1;
         ctx.beginPath();
         ctx.arc(m.x * w, m.y * h, m.r, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,220,160,0.18)";
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
         ctx.fill();
       });
       requestAnimationFrame(frame);
@@ -1328,10 +1497,10 @@
         else ctx.lineTo(x, y);
       }
       const g = ctx.createLinearGradient(0, 0, w, 0);
-      g.addColorStop(0, "rgba(255,176,32,0)");
-      g.addColorStop(0.2, "rgba(255,176,32,0.55)");
-      g.addColorStop(0.55, "rgba(180,35,24,0.75)");
-      g.addColorStop(1, "rgba(255,176,32,0)");
+      g.addColorStop(0, "rgba(125,211,252,0)");
+      g.addColorStop(0.2, "rgba(125,211,252,0.55)");
+      g.addColorStop(0.55, "rgba(255,77,46,0.8)");
+      g.addColorStop(1, "rgba(125,211,252,0)");
       ctx.strokeStyle = g;
       ctx.lineWidth = 1.6;
       ctx.stroke();
@@ -1370,14 +1539,14 @@
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
         ctx.lineTo(cx + Math.cos(a) * (r0 + pulse), cy + Math.sin(a) * (r0 + pulse));
-        ctx.strokeStyle = i % 2 ? "rgba(180,35,24,0.7)" : "rgba(201,162,39,0.55)";
+        ctx.strokeStyle = i % 2 ? "rgba(255,77,46,0.72)" : "rgba(125,211,252,0.5)";
         ctx.lineWidth = 2.2;
         ctx.lineCap = "round";
         ctx.stroke();
       }
       ctx.beginPath();
       ctx.arc(cx, cy, r0 - 6, 0, Math.PI * 2);
-      ctx.strokeStyle = state.playing ? "rgba(255,176,32,0.35)" : "rgba(90,56,24,0.25)";
+      ctx.strokeStyle = state.playing ? "rgba(255,77,46,0.35)" : "rgba(255,255,255,0.08)";
       ctx.lineWidth = 2;
       ctx.stroke();
       requestAnimationFrame(frame);
@@ -1418,6 +1587,19 @@
     document.querySelectorAll("[data-lang]").forEach((b) => {
       b.addEventListener("click", () => setLang(b.dataset.lang));
     });
+    const foldersEl = $("folders");
+    if (foldersEl) {
+      foldersEl.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-folder]");
+        if (!btn) return;
+        openFolder(btn.dataset.folder);
+      });
+    }
+    const mapc = $("map-c");
+    if (mapc) {
+      mapc.addEventListener("click", hitMap);
+      addEventListener("resize", function () { if (state.mapOpen) drawMap(); });
+    }
     $("countries").addEventListener("click", (e) => {
       if (e.target.closest("[data-here]")) {
         goHere();
@@ -1577,6 +1759,10 @@
       else if (act === "snooze") snooze();
       else if (act === "hd") toggleHd();
       else if (act === "tg") shareTelegram(state.current);
+      else if (act === "map") toggleMap();
+      else if (act === "car") toggleCar();
+      else if (act === "newfolder") newFolder();
+      else if (act === "addfolder") addToFolder();
     }
     document.addEventListener("click", onAct);
     document.addEventListener("click", function (e) {
@@ -1679,6 +1865,8 @@
         closeStage();
         closeHelp();
         closeStand();
+        closeMap();
+        closeCar();
       }
       if (e.key === "n" || e.key === "N") playRel(1);
       if (e.key === "p" || e.key === "P") playRel(-1);
@@ -1697,6 +1885,8 @@
       }
       if (e.key === "k" || e.key === "K") startScan();
       if (e.key === "c" || e.key === "C") toggleStand();
+      if (e.key === "m" || e.key === "M") toggleMap();
+      if (e.key === "v" || e.key === "V") toggleCar();
     });
     if ("mediaSession" in navigator) {
       try {
@@ -1754,6 +1944,9 @@
       tickClock();
       await applyDeepLink();
       loadWeather().catch(function () {});
+      if (navigator.serviceWorker) {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      }
     } catch (err) {
       const line = $("count-line");
       if (line) line.textContent = String(err && err.message ? err.message : err);

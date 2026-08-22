@@ -101,7 +101,7 @@ svg { display: block; width: 20px; height: 20px; fill: currentColor; }
   display: flex; gap: 10px; align-items: center;
   background: none; border: 0; color: inherit; text-align: start;
 }
-.brand img { border-radius: 12px; }
+.brand img { border-radius: 999px; }
 .word { font-family: var(--disp); letter-spacing: 0.28em; font-weight: 800; }
 .tag { font-size: 11px; color: var(--muted); }
 .search { flex: 1; position: relative; }
@@ -490,7 +490,7 @@ body.stage-open .player, body.stage-open .credit { visibility: hidden; pointer-e
   background: var(--cabinet); border: 1px solid var(--line);
   border-radius: 24px; padding: 26px 22px 18px; text-align: center;
 }
-.about-card img { margin: 0 auto 10px; border-radius: 16px; }
+.about-card img { margin: 0 auto 10px; border-radius: 999px; }
 .about-body { font-size: 14px; line-height: 1.85; color: #d4d4d8; }
 .about-maker { color: var(--acc); margin: 12px 0; font-weight: 800; }
 .tg {
@@ -506,7 +506,7 @@ body.stage-open .player, body.stage-open .credit { visibility: hidden; pointer-e
   transition: opacity .45s, visibility .45s;
 }
 #loader.off { opacity: 0; visibility: hidden; pointer-events: none; }
-#loader img { border-radius: 18px; }
+#loader img { border-radius: 999px; }
 #load-sub { color: var(--muted); }
 
 @keyframes pulse-spin {

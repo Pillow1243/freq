@@ -45,19 +45,26 @@
 
     <div class="countries" id="countries"></div>
     <div class="countries" id="genres"></div>
-    <div class="count-line" id="count-line"></div>
+    <div class="toolbar">
+      <div class="count-line" id="count-line"></div>
+      <div class="sorts" id="sorts"></div>
+    </div>
 
     <main class="list" id="list"></main>
 
     <footer class="player" id="player">
       <img id="p-ico" alt="" />
       <div class="p-meta">
-        <div class="kicker" data-i18n="onair">آن‌ایر</div>
+        <div class="kicker" id="p-kick" data-i18n="onair">آن‌ایر</div>
         <div id="p-name">—</div>
         <div id="p-sub" class="sub"></div>
       </div>
-      <button id="p-fav" class="ghost" type="button" title="♥">♡</button>
+      <button id="p-prev" class="ghost" type="button" title="prev">⏮</button>
+      <button id="p-rand" class="ghost" type="button" title="random">🎲</button>
       <button id="p-toggle" class="play" type="button" data-i18n="play">پخش</button>
+      <button id="p-next" class="ghost" type="button" title="next">⏭</button>
+      <button id="p-fav" class="ghost" type="button" title="♥">♡</button>
+      <select id="sleep" class="sleep"></select>
       <input id="vol" type="range" min="0" max="1" step="0.01" value="0.85" />
     </footer>
 

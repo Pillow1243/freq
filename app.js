@@ -46,6 +46,8 @@
     { tag: "80s", fa: "دهه ۸۰", en: "80s" },
     { tag: "chillout", fa: "چیل", en: "Chill" },
     { tag: "persian", fa: "پارسی", en: "Persian" },
+    { tag: "folk", fa: "فولک", en: "Folk" },
+    { tag: "reggae", fa: "رگه", en: "Reggae" },
   ];
 
   const state = {
@@ -54,14 +56,18 @@
     cc: "",
     tag: "",
     q: "",
+    sort: localStorage.getItem("freq-sort") || "clickcount",
     offset: 0,
     hasMore: false,
     loadingMore: false,
-    favOnly: false,
+    mode: "browse",
     stations: [],
     favs: JSON.parse(localStorage.getItem("freq-favs") || "[]"),
-    current: null,
+    recents: JSON.parse(localStorage.getItem("freq-recents") || "[]"),
+    current: JSON.parse(localStorage.getItem("freq-last") || "null"),
     playing: false,
+    status: "",
+    sleepAt: 0,
   };
 
   function dict() {
@@ -87,6 +93,8 @@
     });
     renderCountries();
     renderGenres();
+    renderSorts();
+    renderSleep();
     renderList();
     renderPlayer();
   }
@@ -126,13 +134,21 @@
     }
     saveFavs();
     renderPlayer();
+    if (state.mode === "fav") {
+      state.stations = state.favs.slice();
+    }
     renderList();
+  }
+  function pushRecent(station) {
+    state.recents = [station, ...state.recents.filter((s) => s.stationuuid !== station.stationuuid)].slice(0, 40);
+    localStorage.setItem("freq-recents", JSON.stringify(state.recents));
+    localStorage.setItem("freq-last", JSON.stringify(station));
   }
 
   async function loadStations(append) {
     if (state.loadingMore) return;
-    if (state.favOnly) {
-      state.stations = state.favs.slice();
+    if (state.mode === "fav" || state.mode === "recent") {
+      state.stations = (state.mode === "fav" ? state.favs : state.recents).slice();
       state.hasMore = false;
       renderCountries();
       renderGenres();
@@ -147,8 +163,8 @@
         is_https: "true",
         limit: String(PAGE),
         offset: String(state.offset),
-        order: "clickcount",
-        reverse: "true",
+        order: state.sort,
+        reverse: state.sort === "name" ? "false" : "true",
       });
       if (state.cc) p.set("countrycode", state.cc);
       if (state.tag) p.set("tag", state.tag);
@@ -167,11 +183,14 @@
   }
 
   function renderCountries() {
-    const favBtn = `<button type="button" class="${state.favOnly ? "on" : ""}" data-cc="__fav">${t("fav")}</button>`;
+    const extra = [
+      `<button type="button" class="${state.mode === "fav" ? "on" : ""}" data-mode="fav">${t("fav")}</button>`,
+      `<button type="button" class="${state.mode === "recent" ? "on" : ""}" data-mode="recent">${t("recent")}</button>`,
+    ].join("");
     $("countries").innerHTML =
-      favBtn +
+      extra +
       COUNTRIES.map((c) => {
-        const on = !state.favOnly && c.cc === state.cc ? "on" : "";
+        const on = state.mode === "browse" && c.cc === state.cc ? "on" : "";
         const label = state.lang === "fa" ? c.fa : c.en;
         return `<button type="button" class="${on}" data-cc="${c.cc}">${label}</button>`;
       }).join("");
@@ -179,10 +198,30 @@
 
   function renderGenres() {
     $("genres").innerHTML = GENRES.map((g) => {
-      const on = !state.favOnly && g.tag === state.tag ? "on" : "";
+      const on = state.mode === "browse" && g.tag === state.tag ? "on" : "";
       const label = state.lang === "fa" ? g.fa : g.en;
       return `<button type="button" class="${on}" data-tag="${g.tag}">${label}</button>`;
     }).join("");
+  }
+
+  function renderSorts() {
+    const opts = [
+      ["clickcount", "popular"],
+      ["votes", "votes"],
+      ["name", "az"],
+    ];
+    $("sorts").innerHTML = opts
+      .map(([id, key]) => `<button type="button" class="${state.sort === id ? "on" : ""}" data-sort="${id}">${t(key)}</button>`)
+      .join("");
+  }
+
+  function renderSleep() {
+    const sel = $("sleep");
+    const cur = sel.value;
+    sel.innerHTML = [0, 15, 30, 60, 90]
+      .map((m) => `<option value="${m}">${m ? t("sleep") + " " + m : t("sleepOff")}</option>`)
+      .join("");
+    if (cur) sel.value = cur;
   }
 
   function renderList() {
@@ -209,9 +248,7 @@
         </button>`;
       })
       .join("");
-    const more = state.hasMore
-      ? `<button id="more" class="more" type="button">${t("more")}</button>`
-      : "";
+    const more = state.hasMore ? `<button id="more" class="more" type="button">${t("more")}</button>` : "";
     $("list").innerHTML = cards + more;
   }
 
@@ -219,6 +256,8 @@
     const s = state.current;
     $("p-toggle").textContent = state.playing ? t("pause") : t("play");
     $("p-fav").textContent = s && isFav(s.stationuuid) ? "♥" : "♡";
+    if (state.status) $("p-kick").textContent = state.status;
+    else $("p-kick").textContent = t("onair");
     if (!s) return;
     $("p-name").textContent = s.name || "—";
     $("p-sub").textContent = [s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : ""]
@@ -228,21 +267,51 @@
   }
 
   function play(station) {
+    if (!station) return;
     const audio = $("audio");
     state.current = station;
+    state.status = t("connecting");
+    pushRecent(station);
     const url = station.url_resolved || station.url;
-    if (audio.src !== url) audio.src = url;
+    audio.src = url;
     getJSON(`/json/url/${station.stationuuid}`).catch(() => {});
     audio.play().then(() => {
       state.playing = true;
+      state.status = "";
       renderPlayer();
       renderList();
     }).catch(() => {
       state.playing = false;
+      state.status = t("failed");
       renderPlayer();
+      setTimeout(() => playRel(1), 700);
     });
     renderPlayer();
     renderList();
+  }
+
+  function playRel(dir) {
+    const list = state.stations;
+    if (!list.length) return;
+    if (!state.current) {
+      play(list[0]);
+      return;
+    }
+    const i = list.findIndex((s) => s.stationuuid === state.current.stationuuid);
+    const n = (i < 0 ? 0 : i + dir + list.length) % list.length;
+    play(list[n]);
+  }
+
+  function playRandom() {
+    const list = state.stations;
+    if (!list.length) return;
+    let pick = list[Math.floor(Math.random() * list.length)];
+    if (state.current && list.length > 1) {
+      while (pick.stationuuid === state.current.stationuuid) {
+        pick = list[Math.floor(Math.random() * list.length)];
+      }
+    }
+    play(pick);
   }
 
   function toggle() {
@@ -257,8 +326,9 @@
     } else {
       audio.play().then(() => {
         state.playing = true;
+        state.status = "";
         renderPlayer();
-      }).catch(() => {});
+      }).catch(() => playRel(1));
     }
     renderPlayer();
   }
@@ -277,23 +347,35 @@
     resize();
     addEventListener("resize", resize);
     function frame() {
-      t += state.playing ? 0.028 : 0.008;
+      t += state.playing ? 0.032 : 0.008;
       const w = innerWidth;
       const h = innerHeight;
-      ctx.fillStyle = "rgba(7,6,15,0.22)";
+      ctx.fillStyle = "rgba(7,6,15,0.2)";
       ctx.fillRect(0, 0, w, h);
       const cx = w / 2;
-      const cy = h * 0.42;
-      for (let i = 7; i >= 1; i--) {
-        const r = 40 + i * 38 + Math.sin(t * 2 + i) * (state.playing ? 14 : 4);
+      const cy = h * 0.4;
+      for (let i = 8; i >= 1; i--) {
+        const r = 36 + i * 34 + Math.sin(t * 2 + i) * (state.playing ? 16 : 4);
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = i % 2 ? `rgba(255,43,214,${0.08 + i * 0.03})` : `rgba(122,240,255,${0.06 + i * 0.02})`;
+        ctx.strokeStyle = i % 2 ? `rgba(255,43,214,${0.07 + i * 0.03})` : `rgba(122,240,255,${0.05 + i * 0.02})`;
         ctx.lineWidth = 2;
         ctx.stroke();
       }
+      if (state.playing) {
+        for (let i = 0; i < 36; i++) {
+          const a = (i / 36) * Math.PI * 2 + t;
+          const len = 18 + Math.abs(Math.sin(t * 4 + i)) * 28;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(a) * 22, cy + Math.sin(a) * 22);
+          ctx.lineTo(cx + Math.cos(a) * (22 + len), cy + Math.sin(a) * (22 + len));
+          ctx.strokeStyle = i % 2 ? "rgba(255,43,214,0.35)" : "rgba(122,240,255,0.28)";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
       ctx.beginPath();
-      ctx.arc(cx, cy, 8 + (state.playing ? 4 : 0), 0, Math.PI * 2);
+      ctx.arc(cx, cy, 9 + (state.playing ? 5 : 0), 0, Math.PI * 2);
       ctx.fillStyle = state.playing ? "#ff2bd6" : "#7af0ff";
       ctx.fill();
       requestAnimationFrame(frame);
@@ -306,13 +388,16 @@
       b.addEventListener("click", () => setLang(b.dataset.lang));
     });
     $("countries").addEventListener("click", (e) => {
+      const modeBtn = e.target.closest("[data-mode]");
+      if (modeBtn) {
+        state.mode = modeBtn.dataset.mode;
+        loadStations().catch(() => {});
+        return;
+      }
       const btn = e.target.closest("[data-cc]");
       if (!btn) return;
-      if (btn.dataset.cc === "__fav") state.favOnly = true;
-      else {
-        state.favOnly = false;
-        state.cc = btn.dataset.cc;
-      }
+      state.mode = "browse";
+      state.cc = btn.dataset.cc;
       state.q = "";
       $("q").value = "";
       loadStations().catch(() => {});
@@ -320,14 +405,22 @@
     $("genres").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-tag]");
       if (!btn) return;
-      state.favOnly = false;
+      state.mode = "browse";
       state.tag = btn.dataset.tag;
       loadStations().catch(() => {});
+    });
+    $("sorts").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-sort]");
+      if (!btn) return;
+      state.sort = btn.dataset.sort;
+      localStorage.setItem("freq-sort", state.sort);
+      renderSorts();
+      if (state.mode === "browse") loadStations().catch(() => {});
     });
     $("search-form").addEventListener("submit", (e) => {
       e.preventDefault();
       state.q = $("q").value || "";
-      state.favOnly = false;
+      state.mode = "browse";
       loadStations().catch(() => {});
     });
     $("list").addEventListener("click", (e) => {
@@ -343,13 +436,22 @@
     $("list").addEventListener("scroll", () => {
       const el = $("list");
       if (el.scrollTop + el.clientHeight > el.scrollHeight - 240) {
-        if (state.hasMore && !state.loadingMore) loadStations(true).catch(() => {});
+        if (state.hasMore && !state.loadingMore && state.mode === "browse") {
+          loadStations(true).catch(() => {});
+        }
       }
     });
     $("p-toggle").addEventListener("click", toggle);
     $("p-fav").addEventListener("click", () => toggleFav(state.current));
+    $("p-next").addEventListener("click", () => playRel(1));
+    $("p-prev").addEventListener("click", () => playRel(-1));
+    $("p-rand").addEventListener("click", playRandom);
     $("vol").addEventListener("input", (e) => {
       $("audio").volume = Number(e.target.value);
+    });
+    $("sleep").addEventListener("change", (e) => {
+      const m = Number(e.target.value);
+      state.sleepAt = m ? Date.now() + m * 60000 : 0;
     });
     $("audio").addEventListener("pause", () => {
       state.playing = false;
@@ -357,7 +459,13 @@
     });
     $("audio").addEventListener("play", () => {
       state.playing = true;
+      state.status = "";
       renderPlayer();
+    });
+    $("audio").addEventListener("error", () => {
+      state.status = t("failed");
+      renderPlayer();
+      setTimeout(() => playRel(1), 800);
     });
     $("about-btn").addEventListener("click", () => {
       $("about").hidden = false;
@@ -368,6 +476,24 @@
     $("about").addEventListener("click", (e) => {
       if (e.target.id === "about") $("about").hidden = true;
     });
+    addEventListener("keydown", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        toggle();
+      }
+      if (e.key === "n" || e.key === "N") playRel(1);
+      if (e.key === "p" || e.key === "P") playRel(-1);
+      if (e.key === "r" || e.key === "R") playRandom();
+      if (e.key === "f" || e.key === "F") toggleFav(state.current);
+    });
+    setInterval(() => {
+      if (state.sleepAt && Date.now() >= state.sleepAt) {
+        state.sleepAt = 0;
+        $("sleep").value = "0";
+        $("audio").pause();
+      }
+    }, 1000);
   }
 
   async function boot() {
@@ -377,6 +503,7 @@
     $("audio").volume = 0.85;
     try {
       await loadStations();
+      renderPlayer();
       $("loader").classList.add("off");
     } catch (err) {
       $("load-sub").textContent = String(err.message || err);

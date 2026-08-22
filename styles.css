@@ -598,6 +598,48 @@ body.stage-open .credit { visibility: hidden; pointer-events: none; }
 }
 .toast[hidden] { display: none; }
 .keys-btn { height: 28px; font-size: 11px; }
+.waveband {
+  display: flex; gap: 8px; justify-content: center;
+  padding: 0 18px 8px; position: relative; z-index: 2;
+}
+.waveband button {
+  min-width: 64px; border: 2px solid #8a7020; border-radius: 3px;
+  background: linear-gradient(180deg, #3a2416, #1a1008);
+  color: var(--cream); font-family: var(--mono); font-weight: 700; letter-spacing: 0.14em;
+  padding: 6px 12px;
+}
+.waveband button.on { background: var(--brass); color: #2a1810; box-shadow: 0 0 12px rgba(201,162,39,0.35); }
+.badge-hd {
+  display: inline-block; margin-inline-start: 6px;
+  font-size: 9px; letter-spacing: 0.08em; font-family: var(--mono);
+  color: #2a1810; background: var(--amber); padding: 0 4px; border-radius: 2px;
+  vertical-align: middle;
+}
+.wx { color: var(--amber) !important; }
+.stand {
+  position: fixed; inset: 0; z-index: 55;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; text-align: center;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(255,140,40,0.14), transparent 50%),
+    #120b07;
+}
+.stand[hidden] { display: none; }
+.stand-clock {
+  font-family: var(--mono); font-size: clamp(64px, 18vw, 140px);
+  color: var(--amber); letter-spacing: 0.08em;
+  text-shadow: 0 0 30px rgba(255,176,32,0.35);
+  line-height: 1;
+}
+.stand-date, .stand-wx, .stand-st { color: var(--muted); font-size: 16px; }
+.stand-st { color: var(--cream); font-weight: 800; font-size: 20px; max-width: 80vw; }
+.stand-acts { display: flex; gap: 12px; align-items: center; margin-top: 18px; flex-wrap: wrap; justify-content: center; }
+body.stand-on .player, body.stand-on .credit, body.stand-on .list,
+body.stand-on .top, body.stand-on .countries, body.stand-on .toolbar, body.stand-on .waveband,
+body.stand-on .stage {
+  visibility: hidden; pointer-events: none;
+}
+#hd-btn.on { background: var(--amber); color: #2a1810; }
 .list { padding-bottom: 176px; }
 
 html[dir="ltr"] .play .ic-play { transform: none; }

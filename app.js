@@ -102,6 +102,15 @@
     alarm: safeParse("freq-alarm", { on: false, hh: 7, mm: 0, last: "" }),
     stats: safeParse("freq-stats", { ms: 0, hits: {} }),
     band: "",
+    wave: localStorage.getItem("freq-wave") || "fm",
+    hd: localStorage.getItem("freq-hd") === "1",
+    hidden: safeParse("freq-hidden", []),
+    scanning: false,
+    scanGen: 0,
+    night: false,
+    userVol: Number(localStorage.getItem("freq-vol") || "0.85") || 0.85,
+    weather: "",
+    fadeIv: 0,
   };
   function padPresets(arr) {
     const out = Array.isArray(arr) ? arr.slice(0, 6) : [];
@@ -149,7 +158,9 @@
     renderSorts();
     renderSleep();
     renderBands();
+    renderWaves();
     renderPresets();
+    syncHdBtn();
     renderList();
     renderPlayer();
     syncAlarmUi();
@@ -234,6 +245,9 @@
       if (state.tag) p.set("tag", state.tag);
       if (state.langFilter) p.set("language", state.langFilter);
       if (state.q.trim()) p.set("name", state.q.trim());
+      if (state.hd) p.set("bitrateMin", "128");
+      if (state.wave === "am" && !state.tag) p.set("tag", "news");
+      if (state.wave === "sw" && !state.tag) p.set("tag", "world");
       let data = await getJSON(`/json/stations/search?${p}`);
       if (state.q.trim() && (!data || data.length < 12) && !append) {
         const p2 = new URLSearchParams(p);
@@ -243,7 +257,12 @@
         const seen = new Set((data || []).map((s) => s.stationuuid));
         data = (data || []).concat((extra || []).filter((s) => !seen.has(s.stationuuid)));
       }
-      const list = (data || []).filter((s) => (s.url_resolved || s.url || "").startsWith("https://"));
+      const list = (data || []).filter((s) => {
+        const url = s.url_resolved || s.url || "";
+        if (!url.startsWith("https://")) return false;
+        if ((state.hidden || []).indexOf(s.stationuuid) >= 0) return false;
+        return true;
+      });
       state.stations = append ? state.stations.concat(list) : list;
       state.hasMore = (data || []).length >= PAGE;
       state.offset += PAGE;
@@ -332,7 +351,7 @@
         return `<div class="card ${on}" data-id="${s.stationuuid}">
           ${ico}
           <button type="button" class="card-hit" data-play="${s.stationuuid}">
-            <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}</div>
+            <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}</div>
             <div class="meta">${esc(s.country || "")} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + esc(tags) : ""}</div>
           </button>
           <button type="button" class="info" data-info="${s.stationuuid}">i</button>
@@ -568,8 +587,17 @@
         state.playing = true;
         state.status = "";
         stopStatic();
+        if (state.scanning) {
+          state.scanning = false;
+          toast(t("tuned"));
+        }
+        if (state.alarmFade) {
+          state.alarmFade = false;
+          fadeVol(0.04, state.userVol || 0.85, 8000);
+        }
         clockListen(true);
         renderPlayer();
+        tickStand();
       }).catch(() => {
         if (gen !== state.playGen) return;
         state.ignoreErr = false;
@@ -593,6 +621,7 @@
   }
 
   function playRel(dir) {
+    tickClick();
     const list = state.stations;
     if (!list.length) return;
     if (!state.current) {
@@ -640,14 +669,17 @@
     renderPlayer();
   }
 
-  function setVol(v) {
+  function setVol(v, silent) {
     v = Math.min(1, Math.max(0, Number(v) || 0));
     if ($("audio")) $("audio").volume = v;
     if ($("vol")) $("vol").value = String(v);
     if (v > 0.01) state.prevVol = v;
-    try {
-      localStorage.setItem("freq-vol", String(v));
-    } catch (_) {}
+    if (!silent) {
+      state.userVol = v;
+      try {
+        localStorage.setItem("freq-vol", String(v));
+      } catch (_) {}
+    }
     setText("vol-n", String(Math.round(v * 100)));
     const muteBtn = $("mute-btn");
     if (muteBtn) muteBtn.classList.toggle("muted", v < 0.01);
@@ -898,9 +930,10 @@
     if (state.alarm.last === key) return;
     state.alarm.last = key;
     saveAlarm();
+    state.alarmFade = true;
     const s = state.presets[0] || state.current || state.favs[0] || state.stations[0];
     if (s) play(s);
-    openStage();
+    openStand();
   }
   function stationUrl(s) {
     const base = location.origin + location.pathname.replace(/index\.html$/, "");
@@ -989,6 +1022,219 @@
       } catch (_) {}
     }
     if (s) play(s);
+  }
+
+
+  function renderWaves() {
+    const box = $("waves");
+    if (!box) return;
+    box.innerHTML = ["am", "fm", "sw"]
+      .map(function (id) {
+        const on = state.wave === id ? "on" : "";
+        return '<button type="button" class="' + on + '" data-wave="' + id + '">' + t(id) + "</button>";
+      })
+      .join("");
+  }
+  function setWave(id) {
+    state.wave = id === "am" || id === "sw" ? id : "fm";
+    try {
+      localStorage.setItem("freq-wave", state.wave);
+    } catch (_) {}
+    renderWaves();
+    if (state.mode === "browse") loadStations().catch(function () {});
+    tickClick();
+  }
+  function syncHdBtn() {
+    const b = $("hd-btn");
+    if (b) b.classList.toggle("on", !!state.hd);
+  }
+  function toggleHd() {
+    state.hd = !state.hd;
+    try {
+      localStorage.setItem("freq-hd", state.hd ? "1" : "0");
+    } catch (_) {}
+    syncHdBtn();
+    if (state.mode === "browse") loadStations().catch(function () {});
+  }
+  function hideStation(s) {
+    if (!s) return;
+    if ((state.hidden || []).indexOf(s.stationuuid) < 0) state.hidden.push(s.stationuuid);
+    try {
+      localStorage.setItem("freq-hidden", JSON.stringify(state.hidden));
+    } catch (_) {}
+    state.stations = state.stations.filter(function (x) {
+      return x.stationuuid !== s.stationuuid;
+    });
+    renderList();
+    toast(t("hidden"));
+    if ($("sheet")) $("sheet").hidden = true;
+  }
+  function startScan() {
+    if (state.scanning) {
+      state.scanning = false;
+      return;
+    }
+    if (!state.stations.length) return;
+    state.scanning = true;
+    state.scanGen = (state.scanGen || 0) + 1;
+    const gen = state.scanGen;
+    toast(t("scanning"));
+    function step() {
+      if (!state.scanning || gen !== state.scanGen) return;
+      playRel(1);
+      setTimeout(function () {
+        if (!state.scanning || gen !== state.scanGen) return;
+        if (state.playing && !state.status) {
+          state.scanning = false;
+          toast(t("tuned"));
+        } else step();
+      }, 2600);
+    }
+    step();
+  }
+  function fadeVol(from, to, ms) {
+    const audio = $("audio");
+    if (!audio) return;
+    if (state.fadeIv) clearInterval(state.fadeIv);
+    audio.volume = from;
+    const t0 = Date.now();
+    state.fadeIv = setInterval(function () {
+      const p = Math.min(1, (Date.now() - t0) / ms);
+      audio.volume = from + (to - from) * p;
+      if (p >= 1) {
+        clearInterval(state.fadeIv);
+        state.fadeIv = 0;
+      }
+    }, 80);
+  }
+  function sleepTick() {
+    if (!state.sleepAt) return;
+    const left = state.sleepAt - Date.now();
+    if (left <= 0) {
+      state.sleepAt = 0;
+      state.sleepMin = 0;
+      renderSleep();
+      const audio = $("audio");
+      if (audio) audio.pause();
+      setVol(state.userVol || 0.85, true);
+      return;
+    }
+    if (left < 45000) {
+      const v = (state.userVol || 0.85) * (left / 45000);
+      if ($("audio")) $("audio").volume = Math.max(0.02, v);
+    }
+  }
+  function snooze() {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 9);
+    state.alarm.on = true;
+    state.alarm.hh = now.getHours();
+    state.alarm.mm = now.getMinutes();
+    state.alarm.last = "";
+    saveAlarm();
+    syncAlarmUi();
+    const audio = $("audio");
+    if (audio) audio.pause();
+    toast(t("snooze"));
+  }
+  function openStand() {
+    state.night = true;
+    const el = $("stand");
+    if (el) el.hidden = false;
+    document.body.classList.add("stand-on");
+    tickStand();
+  }
+  function closeStand() {
+    state.night = false;
+    const el = $("stand");
+    if (el) el.hidden = true;
+    document.body.classList.remove("stand-on");
+  }
+  function toggleStand() {
+    if (state.night) closeStand();
+    else openStand();
+  }
+  function tickStand() {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    setText("stand-clock", hh + ":" + mm);
+    setText(
+      "stand-date",
+      state.lang === "fa" ? toJalali(now) : now.toISOString().slice(0, 10)
+    );
+    setText("stand-wx", state.weather || "");
+    setText("stand-st", (state.current && state.current.name) || "FREQ");
+    setText("s-wx", state.weather || "");
+  }
+  function tickClick() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "square";
+      o.frequency.value = 180;
+      g.gain.value = 0.03;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start();
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
+      o.stop(ctx.currentTime + 0.06);
+      setTimeout(function () {
+        ctx.close();
+      }, 120);
+    } catch (_) {}
+  }
+  async function loadWeather() {
+    let lat = 50.1109;
+    let lon = 8.6821;
+    const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toLowerCase();
+    if (tz.indexOf("tehran") >= 0) {
+      lat = 35.6892;
+      lon = 51.389;
+    }
+    try {
+      if (navigator.geolocation) {
+        const pos = await new Promise(function (res, rej) {
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2500, maximumAge: 600000 });
+        });
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+      }
+    } catch (_) {}
+    try {
+      const url =
+        "https://api.open-meteo.com/v1/forecast?latitude=" +
+        lat +
+        "&longitude=" +
+        lon +
+        "&current=temperature_2m,weather_code";
+      const j = await fetch(url).then(function (r) {
+        return r.json();
+      });
+      const temp = Math.round((j.current && j.current.temperature_2m) || 0);
+      const code = (j.current && j.current.weather_code) || 0;
+      const sky =
+        code === 0 ? (state.lang === "fa" ? "آفتابی" : "clear") :
+        code < 4 ? (state.lang === "fa" ? "کمی ابری" : "partly cloudy") :
+        code < 50 ? (state.lang === "fa" ? "ابری" : "cloudy") :
+        code < 70 ? (state.lang === "fa" ? "باران" : "rain") :
+        code < 80 ? (state.lang === "fa" ? "برف" : "snow") :
+        state.lang === "fa" ? "رعد" : "storm";
+      state.weather = temp + "° · " + sky;
+      tickStand();
+    } catch (_) {}
+  }
+  function shareTelegram(st) {
+    if (!st) return;
+    const url =
+      "https://t.me/share/url?url=" +
+      encodeURIComponent(stationUrl(st)) +
+      "&text=" +
+      encodeURIComponent((st.name || "FREQ") + " — FREQ");
+    window.open(url, "_blank", "noopener");
   }
 
   function viz() {
@@ -1198,6 +1444,18 @@
       state.tag = btn.dataset.tag;
       loadStations().catch(() => {});
     });
+    const waves = $("waves");
+    if (waves) {
+      waves.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-wave]");
+        if (!btn) return;
+        setWave(btn.dataset.wave);
+      });
+    }
+    if ($("sh-hide"))
+      $("sh-hide").addEventListener("click", function () {
+        hideStation(state.sheet || state.current);
+      });
     const bands = $("bands");
     if (bands) {
       bands.addEventListener("click", (e) => {
@@ -1314,6 +1572,11 @@
         if (f) f.click();
       }
       else if (act === "help") openHelp();
+      else if (act === "scan") startScan();
+      else if (act === "stand") toggleStand();
+      else if (act === "snooze") snooze();
+      else if (act === "hd") toggleHd();
+      else if (act === "tg") shareTelegram(state.current);
     }
     document.addEventListener("click", onAct);
     document.addEventListener("click", function (e) {
@@ -1415,6 +1678,7 @@
       if (e.key === "Escape") {
         closeStage();
         closeHelp();
+        closeStand();
       }
       if (e.key === "n" || e.key === "N") playRel(1);
       if (e.key === "p" || e.key === "P") playRel(-1);
@@ -1431,6 +1695,8 @@
         if (e.shiftKey) savePreset(i);
         else playPreset(i);
       }
+      if (e.key === "k" || e.key === "K") startScan();
+      if (e.key === "c" || e.key === "C") toggleStand();
     });
     if ("mediaSession" in navigator) {
       try {
@@ -1445,12 +1711,7 @@
       } catch (_) {}
     }
     setInterval(() => {
-      if (state.sleepAt && Date.now() >= state.sleepAt) {
-        state.sleepAt = 0;
-        state.sleepMin = 0;
-        renderSleep();
-        $("audio").pause();
-      }
+      sleepTick();
       if (state.playing || state.sleepAt) {
         if ($("s-time")) $("s-time").textContent = fmtTime(listenElapsed());
         updateSleepLeft();
@@ -1462,6 +1723,7 @@
         } catch (_) {}
       }
       tickClock();
+      tickStand();
       checkAlarm();
     }, 1000);
   }
@@ -1491,6 +1753,7 @@
       renderPresets();
       tickClock();
       await applyDeepLink();
+      loadWeather().catch(function () {});
     } catch (err) {
       const line = $("count-line");
       if (line) line.textContent = String(err && err.message ? err.message : err);

@@ -1412,7 +1412,10 @@
         e.preventDefault();
         toggle();
       }
-      if (e.key === "Escape") closeStage();
+      if (e.key === "Escape") {
+        closeStage();
+        closeHelp();
+      }
       if (e.key === "n" || e.key === "N") playRel(1);
       if (e.key === "p" || e.key === "P") playRel(-1);
       if (e.key === "r" || e.key === "R") playRandom();

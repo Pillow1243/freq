@@ -506,9 +506,7 @@
   }
 
   function phHtml(s) {
-    const h = hashHue((s && s.name) || "F");
-    const bg = `conic-gradient(from 210deg, hsl(${h} 82% 54%), hsl(${(h + 38) % 360} 72% 40%), #141418, hsl(${h} 82% 54%))`;
-    return `<div class="ph" style="background:${bg}">${esc(initials((s && s.name) || "F"))}</div>`;
+    return `<div class="ph" aria-hidden="true"><b>${esc(initials((s && s.name) || "F"))}</b></div>`;
   }
   function artHtml(s) {
     const ph = phHtml(s);
@@ -532,12 +530,16 @@
       </button>`;
     }
     return `<div class="card ${on}" data-id="${s.stationuuid}">
-      ${ico}
-      <button type="button" class="card-hit" data-play="${s.stationuuid}">
-        <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}${live}</div>
-        <div class="meta">${esc(s.country || "")} ${s.bitrate ? "· " + s.bitrate + "k" : ""} ${tags ? "· " + esc(tags) : ""}</div>
-      </button>
-      <button type="button" class="info" data-info="${s.stationuuid}">i</button>
+      <div class="card-art">${ico}</div>
+      <div class="card-main">
+        <div class="nm-row">
+          <button type="button" class="card-hit" data-play="${s.stationuuid}">
+            <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}${live}</div>
+          </button>
+          <button type="button" class="info" data-info="${s.stationuuid}">i</button>
+        </div>
+        <button type="button" class="card-hit meta" data-play="${s.stationuuid}">${esc(s.country || "")}${s.bitrate ? " · " + s.bitrate + "k" : ""}${tags ? " · " + esc(tags) : ""}</button>
+      </div>
     </div>`;
   }
   function isHome() {
@@ -615,7 +617,7 @@
     const name = (station && station.name) || "FREQ";
     const h = hashHue(name);
     el.textContent = initials(name);
-    el.style.background = `conic-gradient(from 200deg, hsl(${h} 80% 52%), hsl(${(h + 40) % 360} 70% 42%), #18181b, hsl(${h} 80% 52%))`;
+    el.style.background = "";
   }
   function setArt(img, ph, station) {
     if (!img || !ph) return;

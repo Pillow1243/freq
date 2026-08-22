@@ -62,14 +62,25 @@
     loadingMore: false,
     mode: "browse",
     stations: [],
-    favs: JSON.parse(localStorage.getItem("freq-favs") || "[]"),
-    recents: JSON.parse(localStorage.getItem("freq-recents") || "[]"),
-    current: JSON.parse(localStorage.getItem("freq-last") || "null"),
+    favs: safeParse("freq-favs", []),
+    recents: safeParse("freq-recents", []),
+    current: safeParse("freq-last", null),
     playing: false,
     status: "",
     sleepAt: 0,
+    playGen: 0,
+    ignoreErr: false,
+    fails: 0,
   };
 
+  function safeParse(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
   function dict() {
     return (window.I18N && window.I18N[state.lang]) || window.I18N.fa;
   }
@@ -108,7 +119,7 @@
     let last = null;
     for (const h of [state.host, ...HOSTS]) {
       try {
-        const res = await fetch(h + path, { headers: { "User-Agent": "FREQ/1.0" } });
+        const res = await fetch(h + path);
         if (!res.ok) throw new Error(String(res.status));
         state.host = h;
         return res.json();
@@ -266,28 +277,55 @@
     if (s.favicon) $("p-ico").src = s.favicon;
   }
 
+  function markCurrent() {
+    document.querySelectorAll(".card[data-id]").forEach((el) => {
+      el.classList.toggle("on", state.current && el.dataset.id === state.current.stationuuid);
+    });
+  }
+
   function play(station) {
     if (!station) return;
     const audio = $("audio");
+    state.playGen = (state.playGen || 0) + 1;
+    const gen = state.playGen;
+    state.ignoreErr = true;
     state.current = station;
     state.status = t("connecting");
+    state.playing = false;
     pushRecent(station);
-    const url = station.url_resolved || station.url;
-    audio.src = url;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.src = station.url_resolved || station.url || "";
+    audio.load();
     getJSON(`/json/url/${station.stationuuid}`).catch(() => {});
-    audio.play().then(() => {
-      state.playing = true;
-      state.status = "";
-      renderPlayer();
-      renderList();
-    }).catch(() => {
-      state.playing = false;
-      state.status = t("failed");
-      renderPlayer();
-      setTimeout(() => playRel(1), 700);
-    });
     renderPlayer();
-    renderList();
+    markCurrent();
+    const go = audio.play();
+    if (go && go.then) {
+      go.then(() => {
+        if (gen !== state.playGen) return;
+        state.ignoreErr = false;
+        state.fails = 0;
+        state.playing = true;
+        state.status = "";
+        renderPlayer();
+      }).catch(() => {
+        if (gen !== state.playGen) return;
+        state.ignoreErr = false;
+        failSkip();
+      });
+    }
+    setTimeout(() => {
+      if (gen === state.playGen) state.ignoreErr = false;
+    }, 400);
+  }
+
+  function failSkip() {
+    state.fails = (state.fails || 0) + 1;
+    state.playing = false;
+    state.status = t("failed");
+    renderPlayer();
+    if (state.fails < 4) setTimeout(() => playRel(1), 500);
   }
 
   function playRel(dir) {

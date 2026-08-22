@@ -583,6 +583,7 @@
       : genreHeroHtml();
     $("list").innerHTML = rails + all + cards + more;
     syncClearBtn();
+    syncChrome();
   }
 
   function esc(s) {
@@ -677,6 +678,14 @@
       if (el) el.style.left = left + "%";
     });
   }
+  function syncChrome() {
+    const p = $("player");
+    if (!p) return;
+    const r = p.getBoundingClientRect();
+    const extra = 22;
+    const h = Math.max(160, Math.ceil(window.innerHeight - r.top + extra));
+    document.documentElement.style.setProperty("--player-h", h + "px");
+  }
   function renderPlayer() {
     const s = state.current;
     const player = $("player");
@@ -749,6 +758,7 @@
     setText("car-sub", sub);
     const car = $("car");
     if (car) car.classList.toggle("on-air", state.playing);
+    syncChrome();
   }
 
   function updateSleepLeft() {
@@ -2493,6 +2503,12 @@
       const vol = Number(localStorage.getItem("freq-vol") || "0.85");
       setVol(Number.isFinite(vol) ? vol : 0.85);
       if (state.current) renderPlayer();
+      syncChrome();
+      if (typeof ResizeObserver !== "undefined" && $("player")) {
+        const ro = new ResizeObserver(function () { syncChrome(); });
+        ro.observe($("player"));
+      }
+      addEventListener("resize", syncChrome);
     } catch (err) {
       const sub = $("load-sub");
       if (sub) sub.textContent = String(err && err.message ? err.message : err);

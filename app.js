@@ -982,19 +982,10 @@
   function pushLayer(id) {
     if (layers[layers.length - 1] === id) return;
     layers.push(id);
-    try { history.pushState({ layer: id }, ""); } catch (_) {}
   }
-  function dropLayer(id, fromPop) {
+  function dropLayer(id) {
     const i = layers.lastIndexOf(id);
     if (i >= 0) layers.splice(i, 1);
-    if (!fromPop) {
-      try {
-        if (history.state && history.state.layer === id) {
-          ignorePop += 1;
-          history.back();
-        }
-      } catch (_) {}
-    }
   }
   function consumeBack() {
     const id = layers[layers.length - 1];
@@ -1015,9 +1006,15 @@
   }
   function bindBack() {
     try { history.scrollRestoration = "manual"; } catch (_) {}
+    try {
+      if (!history.state || !history.state.keep) history.replaceState({ keep: "root" }, "");
+      history.pushState({ keep: "live" }, "");
+    } catch (_) {}
     addEventListener("popstate", () => {
       if (ignorePop) { ignorePop -= 1; return; }
-      consumeBack();
+      if (consumeBack()) {
+        try { history.pushState({ keep: "live" }, ""); } catch (_) {}
+      }
     });
     document.addEventListener("backbutton", (e) => {
       if (consumeBack()) {

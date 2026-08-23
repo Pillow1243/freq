@@ -1921,7 +1921,9 @@
     if (was) dropLayer("filters", fromPop);
   }
   function hideExploreTip() {
-    document.querySelectorAll(".neon-tip").forEach(function (el) { el.hidden = true; });
+    document.querySelectorAll(".neon-point, .neon-tip").forEach(function (el) { el.hidden = true; });
+    var hit = $("filter-hit");
+    if (hit) hit.classList.add("seen");
     try { localStorage.setItem("freq-seen-filter", "1"); } catch (_) {}
   }
   function toggleFilters() {
@@ -2244,6 +2246,7 @@
 
   function bind() {
     bindBack();
+    if (localStorage.getItem("freq-seen-filter") === "1") hideExploreTip();
     document.querySelectorAll("[data-lang]").forEach((b) => {
       b.addEventListener("click", () => setLang(b.dataset.lang));
     });

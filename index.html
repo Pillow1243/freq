@@ -34,7 +34,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=23" />
+    <link rel="stylesheet" href="./styles.css?v=24" />
   </head>
   <body>
     <canvas id="viz"></canvas>
@@ -55,9 +55,24 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.6a3.2 3.2 0 0 0 3.2-3.2V6.8a3.2 3.2 0 1 0-6.4 0v4.6A3.2 3.2 0 0 0 12 14.6zm6.2-3.2a6.2 6.2 0 0 1-12.4 0H4.2a7.8 7.8 0 0 0 7 7.55V21h1.6v-2.05a7.8 7.8 0 0 0 7-7.55h-1.6z"/></svg>
         </button>
       </form>
-      <button type="button" class="icon-btn" data-act="filters" id="filters-btn" data-i18n-aria="filters">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.2h16v2H4v-2zm3 4.8h10v2H7v-2zm3 4.8h4v2h-4v-2z"/></svg>
-      </button>
+      <div class="filter-hit" id="filter-hit">
+        <button type="button" class="icon-btn" data-act="filters" id="filters-btn" data-i18n-aria="filters">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.2h16v2H4v-2zm3 4.8h10v2H7v-2zm3 4.8h4v2h-4v-2z"/></svg>
+        </button>
+        <button type="button" class="neon-point" data-act="filters" id="neon-point">
+          <svg class="neon-arrow" viewBox="0 0 88 78" aria-hidden="true">
+            <defs>
+              <filter id="freq-neon" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="1.8" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <path d="M44 72 C 20 58, 18 28, 44 10" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" filter="url(#freq-neon)"/>
+            <path d="M32 22 L44 8 L56 22" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#freq-neon)"/>
+          </svg>
+          <span class="neon-bubble" data-i18n="explore">Explore every channel by filtering them!</span>
+        </button>
+      </div>
       <button type="button" class="icon-btn" data-act="settings" id="settings-btn" data-i18n-aria="settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.1 12.6a7.5 7.5 0 0 0 .05-.6 7.5 7.5 0 0 0-.05-.6l2-1.56a.5.5 0 0 0 .12-.64l-1.9-3.28a.5.5 0 0 0-.6-.22l-2.35.94a7.2 7.2 0 0 0-1.04-.6l-.36-2.5A.5.5 0 0 0 14.5 2h-5a.5.5 0 0 0-.5.42l-.36 2.5c-.37.15-.72.35-1.04.6l-2.35-.94a.5.5 0 0 0-.6.22L3.75 8.08a.5.5 0 0 0 .12.64l2 1.56a7.5 7.5 0 0 0-.05.6 7.5 7.5 0 0 0 .05.6l-2 1.56a.5.5 0 0 0-.12.64l1.9 3.28c.14.24.43.34.7.22l2.35-.94c.32.25.67.45 1.04.6l.36 2.5a.5.5 0 0 0 .48.42h5a.5.5 0 0 0 .5-.42l.36-2.5c.37-.15.72-.35 1.04-.6l2.35.94c.27.12.56.02.7-.22l1.9-3.28a.5.5 0 0 0-.12-.64l-2-1.56zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
       </button>
@@ -65,10 +80,6 @@
     <div class="slim">
       <div class="count-line" id="count-line"></div>
     </div>
-    <button type="button" class="neon-tip" data-act="filters">
-      <span class="neon-dot"></span>
-      <span data-i18n="explore">Explore every channel by filtering them!</span>
-    </button>
 
     <div id="filters" class="drawer" hidden>
       <div class="drawer-card">
@@ -425,7 +436,7 @@
     </div>
 
     <audio id="audio"></audio>
-    <script src="./i18n.js?v=23"></script>
-    <script src="./app.js?v=23"></script>
+    <script src="./i18n.js?v=24"></script>
+    <script src="./app.js?v=24"></script>
   </body>
 </html>

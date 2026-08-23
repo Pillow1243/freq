@@ -1920,7 +1920,12 @@
     syncFiltersBtn();
     if (was) dropLayer("filters", fromPop);
   }
+  function hideExploreTip() {
+    document.querySelectorAll(".neon-tip").forEach(function (el) { el.hidden = true; });
+    try { localStorage.setItem("freq-seen-filter", "1"); } catch (_) {}
+  }
   function toggleFilters() {
+    hideExploreTip();
     if (state.filtersOpen) {
       closeFilters();
       return;

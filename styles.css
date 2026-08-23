@@ -879,6 +879,58 @@ html[data-skin="light"] .stand-clock { color: var(--text); }
   .today-go { padding: 8px 12px; font-size: 12px; }
 }
 
+.neon-tip {
+  position: relative; z-index: 2; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 16px 8px; padding: 8px 14px;
+  width: calc(100% - 32px); max-width: 760px;
+  border: 1px solid rgba(var(--ice-rgb),0.42);
+  border-radius: 999px;
+  background: rgba(var(--ice-rgb),0.07);
+  color: var(--ice);
+  font-size: 12.5px; font-weight: 800; text-align: start;
+  text-shadow: 0 0 8px rgba(var(--ice-rgb),0.85), 0 0 18px rgba(var(--ice-rgb),0.4);
+  box-shadow: 0 0 18px rgba(var(--ice-rgb),0.16), inset 0 0 14px rgba(var(--ice-rgb),0.08);
+  animation: neon-pulse 2.6s ease-in-out infinite;
+}
+.neon-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--acc);
+  box-shadow: 0 0 8px var(--acc), 0 0 16px rgba(var(--acc-rgb),0.7);
+}
+@keyframes neon-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(var(--ice-rgb),0.12); }
+  50% { box-shadow: 0 0 24px rgba(var(--ice-rgb),0.4); }
+}
+
+@media (min-width: 768px) {
+  .top, .slim, .neon-tip { width: min(1280px, 100%); margin-inline: auto; }
+  .top { padding: 18px 28px 10px; }
+  .slim { padding-inline: 28px; }
+  .neon-tip { margin-inline: 28px; width: calc(100% - 56px); }
+  .list {
+    width: min(1280px, 100%);
+    margin-inline: auto;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    padding-inline: 28px;
+  }
+  .player {
+    inset-inline: max(24px, calc(50vw - 490px));
+    max-width: 980px;
+  }
+  .hide-sm { display: grid; }
+  .drawer { align-items: center; }
+  .drawer-card { border-radius: 28px; width: min(720px, calc(100% - 48px)); }
+  .cabinet { width: min(640px, 100%); }
+}
+@media (min-width: 1100px) {
+  .list { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+  .mosaic { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .neon-tip { display: none; }
+}
+
 html[dir="rtl"] .p-ctrls .ghost[data-act="prev"] svg,
 html[dir="rtl"] .p-ctrls .ghost[data-act="next"] svg,
 html[dir="rtl"] .stage-ctrls .ghost[data-act="prev"] svg,

@@ -120,6 +120,7 @@ window.I18N = {
     listening: "بگو…",
     noVoice: "میکروفن روی این مرورگر نیست",
     today: "انتخاب امروز",
+    explore: "تمام کانال‌ها را با فیلتر کردن آن‌ها کاوش کنید!",
   },
   en: {
     dir: "ltr",
@@ -240,5 +241,6 @@ window.I18N = {
     listening: "Listening…",
     noVoice: "Voice search isn’t available here",
     today: "Today’s pick",
+    explore: "Explore every channel by filtering them!",
   },
 };

@@ -2,7 +2,7 @@
 <html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>FREQ — Live radio · Made by Mobin.A</title>
     <meta name="author" content="Mobin.A / مبین.آ" />
     <meta name="theme-color" content="#09090b" />
@@ -34,7 +34,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=21" />
+    <link rel="stylesheet" href="./styles.css?v=23" />
   </head>
   <body>
     <canvas id="viz"></canvas>
@@ -65,6 +65,10 @@
     <div class="slim">
       <div class="count-line" id="count-line"></div>
     </div>
+    <button type="button" class="neon-tip" data-act="filters">
+      <span class="neon-dot"></span>
+      <span data-i18n="explore">Explore every channel by filtering them!</span>
+    </button>
 
     <div id="filters" class="drawer" hidden>
       <div class="drawer-card">
@@ -421,7 +425,7 @@
     </div>
 
     <audio id="audio"></audio>
-    <script src="./i18n.js?v=22"></script>
-    <script src="./app.js?v=22"></script>
+    <script src="./i18n.js?v=23"></script>
+    <script src="./app.js?v=23"></script>
   </body>
 </html>

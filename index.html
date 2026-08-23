@@ -34,7 +34,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=27" />
+    <link rel="stylesheet" href="./styles.css?v=28" />
   </head>
   <body>
     <canvas id="viz"></canvas>
@@ -64,6 +64,11 @@
     </header>
     <div class="slim">
       <div class="count-line" id="count-line"></div>
+      <button type="button" class="live-pill" data-act="live" id="live-pill" data-i18n-aria="onlinePeople">
+        <i class="live-dot" aria-hidden="true"></i>
+        <b id="live-n">1</b>
+        <span data-i18n="online">Online</span>
+      </button>
     </div>
     <button type="button" class="neon-tip" data-act="filters" id="neon-tip">
       <span data-i18n="explore">For a better browse of every channel, tap this text — or tap the filter button at the top.</span>
@@ -97,6 +102,21 @@
       </div>
     </div>
 
+    <div id="live" class="drawer" hidden>
+      <div class="drawer-card">
+        <div class="drawer-handle"></div>
+        <div class="drawer-head">
+          <h3 data-i18n="onlinePeople">People online</h3>
+          <button type="button" class="ghost wide" data-act="live" data-i18n="close">Close</button>
+        </div>
+        <label class="live-name">
+          <span data-i18n="onlineName">Your handle</span>
+          <input id="live-handle" type="text" maxlength="18" autocomplete="nickname" />
+        </label>
+        <div class="live-list" id="live-list"></div>
+      </div>
+    </div>
+
     <div id="settings" class="drawer" hidden>
       <div class="drawer-card">
         <div class="drawer-handle"></div>
@@ -114,6 +134,7 @@
         <button type="button" class="set-item" data-act="theme" id="theme-btn" data-i18n="theme">تم</button>
         <button type="button" class="set-item" data-act="wrap" id="wrap-btn" data-i18n="wrap">آمار</button>
         <button type="button" class="set-item" data-act="install" id="install-btn" hidden data-i18n="install">نصب اپ</button>
+        <button type="button" class="set-item" data-act="live" data-i18n="onlinePeople">افراد آنلاین</button>
         <div class="set-grid">
           <button type="button" class="ghost wide keys-btn" data-act="scan" data-i18n="scan">اسکن</button>
           <button type="button" class="ghost wide keys-btn" data-act="stand" data-i18n="stand">ساعت</button>

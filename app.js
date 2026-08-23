@@ -219,6 +219,7 @@
     syncFiltersBtn();
     syncClearBtn();
     syncDockSleep();
+    if (typeof renderLive === "function") renderLive();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
@@ -847,6 +848,7 @@
     getJSON(`/json/url/${station.stationuuid}`).catch(() => {});
     renderPlayer();
     markCurrent();
+    if (typeof bumpPresence === "function") bumpPresence();
     const go = audio.play();
     if (go && go.then) {
       go.then(() => {
@@ -2239,6 +2241,183 @@
     if (home) $("sh-home").href = home;
   }
 
+  const LIVE_TOPIC = "freq-pillow1243-presence-v1";
+  const LIVE_TTL = 55000;
+  const livePeers = {};
+  function liveId() {
+    let id = "";
+    try { id = localStorage.getItem("freq-sid") || ""; } catch (_) {}
+    if (!id) {
+      id = "f" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+      try { localStorage.setItem("freq-sid", id); } catch (_) {}
+    }
+    return id;
+  }
+  function liveNameDefault() {
+    const words = ["Ember", "Wave", "Night", "Drift", "Signal", "Volt", "Nova", "Pulse", "Echo", "Amber"];
+    return words[Math.floor(Math.random() * words.length)] + " " + String(10 + Math.floor(Math.random() * 89));
+  }
+  function liveName() {
+    let n = "";
+    try { n = (localStorage.getItem("freq-handle") || "").trim(); } catch (_) {}
+    if (!n) {
+      n = liveNameDefault();
+      try { localStorage.setItem("freq-handle", n); } catch (_) {}
+    }
+    return n.slice(0, 18);
+  }
+  function liveSelf() {
+    const st = state.current && state.playing ? String(state.current.name || "").slice(0, 42) : "";
+    return { id: liveId(), name: liveName(), st: st, at: Date.now(), off: false };
+  }
+  function livePeople() {
+    const now = Date.now();
+    const me = liveSelf();
+    livePeers[me.id] = me;
+    return Object.keys(livePeers).map(function (k) { return livePeers[k]; })
+      .filter(function (p) { return p && !p.off && now - (p.at || 0) < LIVE_TTL; })
+      .sort(function (a, b) {
+        if (a.id === me.id) return -1;
+        if (b.id === me.id) return 1;
+        return (b.at || 0) - (a.at || 0);
+      });
+  }
+  function renderLive() {
+    const people = livePeople();
+    const n = people.length || 1;
+    const nb = $("live-n");
+    if (nb) nb.textContent = String(n);
+    const pill = $("live-pill");
+    if (pill) {
+      const span = pill.querySelector("[data-i18n='online']");
+      if (span) span.textContent = t("online");
+      const cfn = dict().onlineCount;
+      const label = typeof cfn === "function" ? cfn(n) : n + " " + t("online");
+      pill.setAttribute("aria-label", t("onlinePeople") + " · " + label);
+    }
+    const box = $("live-list");
+    if (!box) return;
+    const me = liveId();
+    if (!people.length) {
+      box.innerHTML = '<div class="card">' + esc(t("onlineEmpty")) + "</div>";
+      return;
+    }
+    box.innerHTML = people.map(function (p) {
+      const mine = p.id === me;
+      const hue = hashHue(p.name);
+      const sub = p.st ? t("onlineTuned") + " " + p.st : t("onlineIdle");
+      const tag = mine ? " · " + t("onlineYou") : "";
+      return '<div class="live-row' + (mine ? " me" : "") + '">' +
+        '<div class="av" style="background:hsl(' + hue + ' 70% 42%)">' + esc(initials(p.name)) + "</div>" +
+        '<div><div class="who">' + esc(p.name) + esc(tag) + '</div><div class="st">' + esc(sub) + "</div></div></div>";
+    }).join("");
+    const inp = $("live-handle");
+    if (inp && document.activeElement !== inp) inp.value = liveName();
+  }
+  function ingestLive(raw) {
+    try {
+      const msg = String(raw || "");
+      const i = msg.indexOf("{");
+      if (i < 0) return;
+      const pobj = JSON.parse(msg.slice(i));
+      if (!pobj || !pobj.id || typeof pobj.id !== "string" || pobj.id.length > 24) return;
+      if (pobj.off) { delete livePeers[pobj.id]; renderLive(); return; }
+      livePeers[pobj.id] = {
+        id: pobj.id,
+        name: String(pobj.name || "FREQ").slice(0, 18),
+        st: String(pobj.st || "").slice(0, 42),
+        at: Date.now(),
+        off: false,
+      };
+      renderLive();
+    } catch (_) {}
+  }
+  function bumpPresence() {
+    const body = "FREQ1" + JSON.stringify(liveSelf());
+    fetch("https://ntfy.sh/" + LIVE_TOPIC, {
+      method: "POST",
+      headers: { Title: "freq", Priority: "min" },
+      body: body,
+    }).catch(function () {});
+    renderLive();
+  }
+  function startLive() {
+    renderLive();
+    bumpPresence();
+    try {
+      const ws = new WebSocket("wss://ntfy.sh/" + LIVE_TOPIC + "/ws");
+      ws.onmessage = function (e) {
+        try {
+          const pack = JSON.parse(e.data);
+          if (pack && pack.event === "message") ingestLive(pack.message);
+        } catch (_) {}
+      };
+      state.liveWs = ws;
+    } catch (_) {}
+    fetch("https://ntfy.sh/" + LIVE_TOPIC + "/json?poll=1&since=2m")
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        String(text || "").split("\\n").forEach(function (line) {
+          if (!line) return;
+          try {
+            const pack = JSON.parse(line);
+            if (pack && pack.message) ingestLive(pack.message);
+          } catch (_) {}
+        });
+      })
+      .catch(function () {});
+    setInterval(bumpPresence, 22000);
+    addEventListener("visibilitychange", function () {
+      if (!document.hidden) bumpPresence();
+    });
+    addEventListener("pagehide", function () {
+      try {
+        navigator.sendBeacon("https://ntfy.sh/" + LIVE_TOPIC, "FREQ1" + JSON.stringify({ id: liveId(), off: true }));
+      } catch (_) {}
+    });
+    const inp = $("live-handle");
+    if (inp) {
+      inp.value = liveName();
+      let ht = 0;
+      inp.addEventListener("input", function () {
+        clearTimeout(ht);
+        ht = setTimeout(function () {
+          const n = String(inp.value || "").trim().slice(0, 18);
+          if (!n) return;
+          try { localStorage.setItem("freq-handle", n); } catch (_) {}
+          bumpPresence();
+        }, 400);
+      });
+    }
+    const liveEl = $("live");
+    if (liveEl) {
+      liveEl.addEventListener("click", function (e) {
+        if (e.target.id === "live") closeLive();
+      });
+    }
+  }
+  function openLive() {
+    const el = $("live");
+    if (!el) return;
+    closeFilters();
+    closeSettings();
+    if (el.hidden) pushLayer("live");
+    el.hidden = false;
+    renderLive();
+  }
+  function closeLive(fromPop) {
+    const el = $("live");
+    const was = el && !el.hidden;
+    if (el) el.hidden = true;
+    if (was) dropLayer("live", fromPop);
+  }
+  function toggleLive() {
+    const el = $("live");
+    if (!el) return;
+    if (el.hidden) openLive();
+    else closeLive();
+  }
+
   function bind() {
     bindBack();
     if (localStorage.getItem("freq-seen-filter") === "1") hideExploreTip();
@@ -2456,6 +2635,7 @@
       else if (act === "voice") startVoice();
       else if (act === "sleeptog") cycleSleep();
       else if (act === "seeall") { state.homeAll = true; renderList(); const L=$("list"); if(L) L.scrollTop=0; }
+      else if (act === "live") toggleLive();
       else if (act === "install") {
         if (window._freqPrompt) {
           window._freqPrompt.prompt();
@@ -2680,6 +2860,7 @@
     try {
       applyI18n();
       bind();
+      try { startLive(); } catch (_) {}
       viz();
       playerWave();
       stageRing();

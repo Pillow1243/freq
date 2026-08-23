@@ -1921,9 +1921,7 @@
     if (was) dropLayer("filters", fromPop);
   }
   function hideExploreTip() {
-    document.querySelectorAll(".neon-point, .neon-tip").forEach(function (el) { el.hidden = true; });
-    var hit = $("filter-hit");
-    if (hit) hit.classList.add("seen");
+    document.querySelectorAll(".neon-tip").forEach(function (el) { el.hidden = true; });
     try { localStorage.setItem("freq-seen-filter", "1"); } catch (_) {}
   }
   function toggleFilters() {

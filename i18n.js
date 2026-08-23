@@ -241,6 +241,6 @@ window.I18N = {
     listening: "Listening…",
     noVoice: "Voice search isn’t available here",
     today: "Today’s pick",
-    explore: "Explore every channel by filtering them!",
+    explore: "For a better browse of every channel, tap this text — or tap the filter button at the top.",
   },
 };

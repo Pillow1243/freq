@@ -2246,23 +2246,53 @@
     n = Math.imul(n ^ (n >>> 13), 0xc2b2ae35);
     return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
   }
+  function iranHour() {
+    try {
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Tehran",
+        hour: "numeric",
+        minute: "numeric",
+        hourCycle: "h23",
+      }).formatToParts(new Date());
+      let h = 0, m = 0;
+      for (let i = 0; i < parts.length; i++) {
+        if (parts[i].type === "hour") h = Number(parts[i].value);
+        if (parts[i].type === "minute") m = Number(parts[i].value);
+      }
+      return h + m / 60;
+    } catch (_) {
+      const utc = Date.now() + new Date().getTimezoneOffset() * 60000;
+      const t = new Date(utc + 3.5 * 3600000);
+      return t.getHours() + t.getMinutes() / 60;
+    }
+  }
+  function crowdBase(h) {
+    const pts = [
+      [0, 38200], [1.5, 24600], [3, 15800], [5, 17200],
+      [7, 26800], [9.5, 44800], [12, 62400], [13.5, 65800],
+      [16, 81200], [18.5, 96800], [21, 106400], [22.2, 107600],
+      [23.4, 84200], [24, 38200],
+    ];
+    let i = 0;
+    while (i < pts.length - 1 && h > pts[i + 1][0]) i += 1;
+    const a = pts[i], b = pts[i + 1];
+    const t = (h - a[0]) / ((b[0] - a[0]) || 1);
+    const s = t * t * (3 - 2 * t);
+    return a[1] + (b[1] - a[1]) * s;
+  }
   function crowdNow(salt) {
     const tick = Math.floor(Date.now() / 3000);
-    const d = new Date();
-    const lh = d.getHours() + d.getMinutes() / 60;
-    const tod = 0.74 + 0.26 * (0.5 + 0.5 * Math.cos(((lh - 21) / 24) * Math.PI * 2));
-    const mid = salt === 7 ? 61280 : 70420;
+    const scale = salt === 7 ? 0.94 : 1;
     const h = crowdHash(tick * 2654435761 + salt * 97);
     const h2 = crowdHash(tick * 1597334677 + salt * 13);
-    const wave = Math.sin(tick / 13) * 3600 + Math.sin(tick / 27 + salt) * 1600;
-    const jitter = (h - 0.5) * 2800 + (h2 - 0.5) * 900;
-    let n = Math.round((mid + wave) * tod + jitter);
-    if (n < 21480) n = 21480;
-    if (n > 88640) n = 88640;
+    const jitter = (h - 0.5) * 1600 + (h2 - 0.5) * 600;
+    let n = Math.round(crowdBase(iranHour()) * scale + jitter);
+    if (n < 8200) n = 8200;
+    if (n > 112800) n = 112800;
     return n;
   }
   function fmtCrowd(n) {
-    try { return n.toLocaleString(state.lang === "fa" ? "fa-IR" : "en-US"); }
+    try { return n.toLocaleString("en-US"); }
     catch (_) { return String(n); }
   }
   function renderLive() {

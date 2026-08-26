@@ -72,7 +72,7 @@ svg { display: block; width: 20px; height: 20px; fill: currentColor; }
 .live-pill b {
   font-family: var(--mono); color: var(--acc);
   font-variant-numeric: tabular-nums;
-  min-width: 4.6em; text-align: center;
+  min-width: 6.4em; text-align: center;
 }
 .live-pill b.pop { animation: crowd-pop .35s ease; }
 @keyframes crowd-pop {

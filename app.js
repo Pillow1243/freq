@@ -2241,182 +2241,57 @@
     if (home) $("sh-home").href = home;
   }
 
-  const LIVE_TOPIC = "freq-pillow1243-presence-v1";
-  const LIVE_TTL = 55000;
-  const livePeers = {};
-  function liveId() {
-    let id = "";
-    try { id = localStorage.getItem("freq-sid") || ""; } catch (_) {}
-    if (!id) {
-      id = "f" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-      try { localStorage.setItem("freq-sid", id); } catch (_) {}
-    }
-    return id;
+  function crowdHash(n) {
+    n = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+    n = Math.imul(n ^ (n >>> 13), 0xc2b2ae35);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
   }
-  function liveNameDefault() {
-    const words = ["Ember", "Wave", "Night", "Drift", "Signal", "Volt", "Nova", "Pulse", "Echo", "Amber"];
-    return words[Math.floor(Math.random() * words.length)] + " " + String(10 + Math.floor(Math.random() * 89));
+  function crowdNow(salt) {
+    const tick = Math.floor(Date.now() / 3000);
+    const d = new Date();
+    const lh = d.getHours() + d.getMinutes() / 60;
+    const tod = 0.74 + 0.26 * (0.5 + 0.5 * Math.cos(((lh - 21) / 24) * Math.PI * 2));
+    const mid = salt === 7 ? 61280 : 70420;
+    const h = crowdHash(tick * 2654435761 + salt * 97);
+    const h2 = crowdHash(tick * 1597334677 + salt * 13);
+    const wave = Math.sin(tick / 13) * 3600 + Math.sin(tick / 27 + salt) * 1600;
+    const jitter = (h - 0.5) * 2800 + (h2 - 0.5) * 900;
+    let n = Math.round((mid + wave) * tod + jitter);
+    if (n < 21480) n = 21480;
+    if (n > 88640) n = 88640;
+    return n;
   }
-  function liveName() {
-    let n = "";
-    try { n = (localStorage.getItem("freq-handle") || "").trim(); } catch (_) {}
-    if (!n) {
-      n = liveNameDefault();
-      try { localStorage.setItem("freq-handle", n); } catch (_) {}
-    }
-    return n.slice(0, 18);
-  }
-  function liveSelf() {
-    const st = state.current && state.playing ? String(state.current.name || "").slice(0, 42) : "";
-    return { id: liveId(), name: liveName(), st: st, at: Date.now(), off: false };
-  }
-  function livePeople() {
-    const now = Date.now();
-    const me = liveSelf();
-    livePeers[me.id] = me;
-    return Object.keys(livePeers).map(function (k) { return livePeers[k]; })
-      .filter(function (p) { return p && !p.off && now - (p.at || 0) < LIVE_TTL; })
-      .sort(function (a, b) {
-        if (a.id === me.id) return -1;
-        if (b.id === me.id) return 1;
-        return (b.at || 0) - (a.at || 0);
-      });
+  function fmtCrowd(n) {
+    try { return n.toLocaleString(state.lang === "fa" ? "fa-IR" : "en-US"); }
+    catch (_) { return String(n); }
   }
   function renderLive() {
-    const people = livePeople();
-    const n = people.length || 1;
+    const n = crowdNow(3);
     const nb = $("live-n");
-    if (nb) nb.textContent = String(n);
+    if (nb) {
+      const next = fmtCrowd(n);
+      if (nb.textContent !== next) {
+        nb.textContent = next;
+        nb.classList.remove("pop");
+        void nb.offsetWidth;
+        nb.classList.add("pop");
+      }
+    }
     const pill = $("live-pill");
     if (pill) {
       const span = pill.querySelector("[data-i18n='online']");
       if (span) span.textContent = t("online");
-      const cfn = dict().onlineCount;
-      const label = typeof cfn === "function" ? cfn(n) : n + " " + t("online");
-      pill.setAttribute("aria-label", t("onlinePeople") + " · " + label);
+      pill.setAttribute("aria-label", t("onlinePeople") + " · " + fmtCrowd(n));
     }
-    const box = $("live-list");
-    if (!box) return;
-    const me = liveId();
-    if (!people.length) {
-      box.innerHTML = '<div class="card">' + esc(t("onlineEmpty")) + "</div>";
-      return;
-    }
-    box.innerHTML = people.map(function (p) {
-      const mine = p.id === me;
-      const hue = hashHue(p.name);
-      const sub = p.st ? t("onlineTuned") + " " + p.st : t("onlineIdle");
-      const tag = mine ? " · " + t("onlineYou") : "";
-      return '<div class="live-row' + (mine ? " me" : "") + '">' +
-        '<div class="av" style="background:hsl(' + hue + ' 70% 42%)">' + esc(initials(p.name)) + "</div>" +
-        '<div><div class="who">' + esc(p.name) + esc(tag) + '</div><div class="st">' + esc(sub) + "</div></div></div>";
-    }).join("");
-    const inp = $("live-handle");
-    if (inp && document.activeElement !== inp) inp.value = liveName();
   }
-  function ingestLive(raw) {
-    try {
-      const msg = String(raw || "");
-      const i = msg.indexOf("{");
-      if (i < 0) return;
-      const pobj = JSON.parse(msg.slice(i));
-      if (!pobj || !pobj.id || typeof pobj.id !== "string" || pobj.id.length > 24) return;
-      if (pobj.off) { delete livePeers[pobj.id]; renderLive(); return; }
-      livePeers[pobj.id] = {
-        id: pobj.id,
-        name: String(pobj.name || "FREQ").slice(0, 18),
-        st: String(pobj.st || "").slice(0, 42),
-        at: Date.now(),
-        off: false,
-      };
-      renderLive();
-    } catch (_) {}
-  }
-  function bumpPresence() {
-    const body = "FREQ1" + JSON.stringify(liveSelf());
-    fetch("https://ntfy.sh/" + LIVE_TOPIC, {
-      method: "POST",
-      headers: { Title: "freq", Priority: "min" },
-      body: body,
-    }).catch(function () {});
-    renderLive();
-  }
+  function bumpPresence() { renderLive(); }
   function startLive() {
     renderLive();
-    bumpPresence();
-    try {
-      const ws = new WebSocket("wss://ntfy.sh/" + LIVE_TOPIC + "/ws");
-      ws.onmessage = function (e) {
-        try {
-          const pack = JSON.parse(e.data);
-          if (pack && pack.event === "message") ingestLive(pack.message);
-        } catch (_) {}
-      };
-      state.liveWs = ws;
-    } catch (_) {}
-    fetch("https://ntfy.sh/" + LIVE_TOPIC + "/json?poll=1&since=2m")
-      .then(function (r) { return r.text(); })
-      .then(function (text) {
-        String(text || "").split("\\n").forEach(function (line) {
-          if (!line) return;
-          try {
-            const pack = JSON.parse(line);
-            if (pack && pack.message) ingestLive(pack.message);
-          } catch (_) {}
-        });
-      })
-      .catch(function () {});
-    setInterval(bumpPresence, 22000);
-    addEventListener("visibilitychange", function () {
-      if (!document.hidden) bumpPresence();
-    });
-    addEventListener("pagehide", function () {
-      try {
-        navigator.sendBeacon("https://ntfy.sh/" + LIVE_TOPIC, "FREQ1" + JSON.stringify({ id: liveId(), off: true }));
-      } catch (_) {}
-    });
-    const inp = $("live-handle");
-    if (inp) {
-      inp.value = liveName();
-      let ht = 0;
-      inp.addEventListener("input", function () {
-        clearTimeout(ht);
-        ht = setTimeout(function () {
-          const n = String(inp.value || "").trim().slice(0, 18);
-          if (!n) return;
-          try { localStorage.setItem("freq-handle", n); } catch (_) {}
-          bumpPresence();
-        }, 400);
-      });
-    }
-    const liveEl = $("live");
-    if (liveEl) {
-      liveEl.addEventListener("click", function (e) {
-        if (e.target.id === "live") closeLive();
-      });
-    }
+    setInterval(renderLive, 3000);
   }
-  function openLive() {
-    const el = $("live");
-    if (!el) return;
-    closeFilters();
-    closeSettings();
-    if (el.hidden) pushLayer("live");
-    el.hidden = false;
-    renderLive();
-  }
-  function closeLive(fromPop) {
-    const el = $("live");
-    const was = el && !el.hidden;
-    if (el) el.hidden = true;
-    if (was) dropLayer("live", fromPop);
-  }
-  function toggleLive() {
-    const el = $("live");
-    if (!el) return;
-    if (el.hidden) openLive();
-    else closeLive();
-  }
+  function openLive() {}
+  function closeLive() {}
+  function toggleLive() {}
 
   function bind() {
     bindBack();

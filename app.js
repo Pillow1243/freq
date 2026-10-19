@@ -13,6 +13,18 @@
     safeUrl,
     isWebUrl,
     esc,
+    classifyFailure,
+    backoff,
+    mirrorPlan,
+    noteMirror,
+    noteStream,
+    streamCooling,
+    streamFormat,
+    canPlayStream,
+    upgradeToHttps,
+    mediaErrorInfo,
+    smartFilters,
+    buildAltSearchQuery,
     hashHue,
     fakeFreq,
     initials,
@@ -23,7 +35,6 @@
     normalizeStation,
     normalizeStations,
     buildStationsQuery,
-    buildTagFallbackQuery,
     parseFilters,
     filtersToQuery,
     formatNumber,
@@ -37,14 +48,22 @@
     if (typeof document === "undefined" || !document || !document.getElementById) return null;
     return document.getElementById(id);
   };
+  /* Mirrors, in the order they should be tried. Radio Browser rotates its
+     public servers often (fi1/nl1 have been unreachable for weeks), so the
+     list is a hint, not a promise: dead ones get a cooldown and the healthy
+     one is remembered in `state.host`. */
   const HOSTS = [
     "https://de1.api.radio-browser.info",
-    "https://fi1.api.radio-browser.info",
-    "https://nl1.api.radio-browser.info",
+    "https://de2.api.radio-browser.info",
     "https://all.api.radio-browser.info",
+    "https://nl1.api.radio-browser.info",
+    "https://fi1.api.radio-browser.info",
+    "https://at1.api.radio-browser.info",
   ];
+  const HOST_TIMEOUT = 6500;
+  const HOST_BUDGET = 15000;
   const PAGE = 120;
-  const APP_VERSION = "2.1.0";
+  const APP_VERSION = "2.1.1";
   const API_TTL = 30 * 1000;
   const DIRSTATS_TTL = 6 * 60 * 60 * 1000;
   const COUNTRIES = [
@@ -259,6 +278,7 @@
     host: HOSTS[0],
     cc: "",
     tag: "",
+    city: "",
     langFilter: "",
     q: "",
     sort: lsGet("freq-sort", "clickcount"),
@@ -339,6 +359,23 @@
         : null,
     error: false,
     offline: typeof navigator !== "undefined" && navigator.onLine === false,
+    net: { kind: "", i18n: "", reason: "", at: 0, retryAt: 0, attempts: 0, status: 0 },
+    netTimer: 0,
+    mirrors: (function () {
+      const raw = safeParse("freq-mirrors", null);
+      return raw && typeof raw === "object" ? raw : {};
+    })(),
+    streamHealth: (function () {
+      const raw = safeParse("freq-stream", null);
+      return raw && typeof raw === "object" ? raw : {};
+    })(),
+    // No stored preference yet: default to "playable only" on browsers that
+    // cannot decode HLS (Chrome/Firefox/Windows Edge), and keep everything on
+    // Safari/iOS where the element plays m3u8 natively.
+    onlyPlayable: lsGet("freq-onlyplayable", "") === "" ? null : lsGet("freq-onlyplayable", "") === "1",
+    needsGesture: false,
+    reconnects: 0,
+    reconnectTimer: 0,
     renderKey: "",
     renderedIds: [],
     cacheAt: 0,
@@ -375,6 +412,10 @@
     });
     document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
       el.placeholder = d[el.dataset.i18nPlaceholder] || "";
+    });
+    document.querySelectorAll("[data-i18n-title]").forEach(function (el) {
+      const tip = d[el.dataset.i18nTitle];
+      if (typeof tip === "string") el.title = tip;
     });
     document.querySelectorAll("[data-i18n-aria]").forEach(function (el) {
       const label = d[el.dataset.i18nAria];
@@ -425,6 +466,9 @@
     syncVersion();
     renderDirectoryStats();
     renderSearchHints();
+    // data-i18n just overwrote the status bar with generic copy — re-apply the
+    // real network diagnosis (offline vs. unreachable vs. rate limited).
+    tickNetBar();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
@@ -439,17 +483,108 @@
   function trimApiCache() {
     while (apiCache.size > 60) apiCache.delete(apiCache.keys().next().value);
   }
-  function markOnline() {
-    if (state.offline) {
-      state.offline = false;
-      setNetBar(false);
+  /* ------------------------------------------------------------- network
+     Three honest states, because "you are offline" and "we could not reach
+     the directory" need different fixes:
+       offline   — the browser itself reports no connection
+       degraded  — internet is fine, no mirror answered (outage, rate limit,
+                   DNS filtering, a privacy extension blocking the origin)
+       ok        — the directory answered
+     Only `offline` is ever allowed to say "showing what we saved".
+  -------------------------------------------------------------------------- */
+  function browserOffline() {
+    return typeof navigator !== "undefined" && navigator.onLine === false;
+  }
+  /** "Playable only" is decided by what this element can actually decode. */
+  function onlyPlayable() {
+    if (state.onlyPlayable === null) state.onlyPlayable = !supportProfile().hlsOk;
+    return state.onlyPlayable;
+  }
+  function clearNetRetry() {
+    if (state.netTimer) {
+      clearTimeout(state.netTimer);
+      state.netTimer = 0;
     }
   }
-  function markOffline() {
-    if (!state.offline) {
-      state.offline = true;
-      setNetBar(true);
+  function markOnline() {
+    const wasDown = state.offline || (state.net.kind && state.net.kind !== "ok");
+    state.offline = false;
+    if (state.net.kind !== "ok" || state.net.attempts) {
+      // `reason` survives on purpose: the list can still explain *why* it is
+      // empty ("too many requests") after the connectivity bar steps aside.
+      const reason = state.net.reason || state.net.i18n || "";
+      state.net = { kind: "ok", i18n: "", reason: reason, at: Date.now(), retryAt: 0, attempts: 0, status: 0 };
     }
+    clearNetRetry();
+    if (wasDown) setNetBar(false, true);
+  }
+  function markOffline() {
+    if (!state.offline) state.offline = true;
+    state.net = {
+      kind: "offline",
+      i18n: "offlineBody",
+      reason: "offlineBody",
+      at: Date.now(),
+      retryAt: 0,
+      attempts: 0,
+      status: 0,
+    };
+    clearNetRetry();
+    setNetBar(true);
+  }
+  /**
+   * @param {{status?:number,aborted?:boolean,empty?:boolean,online?:boolean}} info
+   */
+  function markNetFailure(info) {
+    const details = info || {};
+    const cls = classifyFailure({
+      status: details.status,
+      aborted: details.aborted,
+      empty: details.empty,
+      online: typeof details.online === "boolean" ? details.online : !browserOffline(),
+    });
+    const wait = cls.retryMs ? backoff(state.net.attempts || 0, cls.retryMs, 120000) : 0;
+    state.net = {
+      kind: cls.kind,
+      i18n: cls.i18n,
+      reason: cls.i18n,
+      at: Date.now(),
+      retryAt: wait ? Date.now() + wait : 0,
+      attempts: (state.net.attempts || 0) + 1,
+      status: Number(details.status) || 0,
+    };
+    if (cls.kind === "offline") state.offline = true;
+    setNetBar(true);
+    if (!cls.hard && wait) scheduleNetRetry(wait);
+  }
+  function scheduleNetRetry(waitMs) {
+    clearNetRetry();
+    if ((state.net.attempts || 0) > 10) return;
+    state.netTimer = setTimeout(function () {
+      state.netTimer = 0;
+      if (browserOffline()) return;
+      if (document.hidden) return;
+      retryLoad({ auto: true });
+    }, Math.max(4000, waitMs));
+  }
+  /** Human copy for the status bar; `null` means "hide it". */
+  function netCopy() {
+    if (browserOffline()) {
+      return { tone: "offline", text: t("offlineBody"), sub: savedNote(), retry: true };
+    }
+    const kind = state.net.kind;
+    if (!kind || kind === "ok") return null;
+    const wait = Math.max(0, Math.ceil(((state.net.retryAt || 0) - Date.now()) / 1000));
+    const auto =
+      state.net.attempts > 0 && state.net.attempts <= 10 && wait > 2
+        ? " · " + t("retryIn")(wait)
+        : "";
+    return { tone: kind, text: t(state.net.i18n || "netUnreachable") + auto, sub: savedNote(), retry: true };
+  }
+  function savedNote() {
+    if (!state.stations.length) return "";
+    if (!state.net.at) return "";
+    return state.cacheAt ? t("savedShown")(formatNumber(state.stations.length, state.lang === "fa" ? "fa-IR" : "en-US")) : "";
   }
 
   async function getJSON(path, opts) {
@@ -460,43 +595,111 @@
       const hit = apiCache.get(path);
       if (hit && Date.now() - hit.at < ttl) return hit.data;
     }
+    if (browserOffline()) {
+      markNetFailure({ online: false });
+      throw new Error("offline");
+    }
+    const hosts = mirrorPlan(HOSTS, state.mirrors, Date.now(), state.host);
+    const budget = Number(options.budget) || HOST_BUDGET;
+    const started = Date.now();
     let last = null;
+    let lastInfo = null;
     const tried = new Set();
-    for (const h of [state.host, ...HOSTS]) {
+    for (const h of hosts) {
       if (!h || tried.has(h)) continue;
       tried.add(h);
+      // Never let a whole round of mirrors stall the first paint: when the
+      // remaining budget is gone we stop and show what we have.
+      if (Date.now() - started > budget) break;
+      const left = Math.max(1200, budget - (Date.now() - started));
+      const timeout = Math.max(1500, Math.min(options.timeout || HOST_TIMEOUT, left));
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
       let onAbort = null;
+      let timedOut = false;
       if (ctrl && options.signal) {
         if (options.signal.aborted) break;
         onAbort = function () { ctrl.abort(); };
         options.signal.addEventListener("abort", onAbort, { once: true });
       }
-      const timer = ctrl
-        ? setTimeout(function () { ctrl.abort(); }, options.timeout || 9000)
-        : null;
+      const timer = ctrl ? setTimeout(function () { timedOut = true; ctrl.abort(); }, timeout) : null;
       try {
         const init = ctrl ? { signal: ctrl.signal, credentials: "omit" } : { credentials: "omit" };
         const res = await fetch(h + path, init);
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        if (!res.ok) {
+          const err = new Error("HTTP " + res.status);
+          err.freq = { status: res.status, retryAfter: retryAfter(res) };
+          throw err;
+        }
         const data = await res.json();
         state.host = h;
-        if (cacheable) {
+        state.mirrors = noteMirror(state.mirrors, h, true, Date.now());
+        saveMirrors();
+        markOnline();
+        // Never cache an empty answer: it would be replayed for the whole TTL
+        // and turn a transient outage into a permanent "no stations found".
+        if (cacheable && !isEmptyResult(data)) {
           apiCache.set(path, { data: data, at: Date.now() });
           trimApiCache();
         }
-        markOnline();
         return data;
       } catch (e) {
         if (options.signal && options.signal.aborted) throw e;
         last = e;
+        lastInfo = (e && e.freq) || { aborted: timedOut || isAbort(e), online: !browserOffline() };
+        state.mirrors = noteMirror(state.mirrors, h, false, Date.now());
+        saveMirrors();
       } finally {
         if (timer) clearTimeout(timer);
         if (onAbort && options.signal) options.signal.removeEventListener("abort", onAbort);
       }
     }
-    markOffline();
+    markNetFailure(lastInfo || { online: browserOffline() });
     throw last || new Error("radio api down");
+  }
+
+  function isEmptyResult(data) {
+    if (Array.isArray(data)) return data.length === 0;
+    if (data && typeof data === "object") return Object.keys(data).length === 0;
+    return !data;
+  }
+  function retryAfter(res) {
+    try {
+      if (!res || !res.headers || typeof res.headers.get !== "function") return 0;
+      return Number(res.headers.get("retry-after")) || 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+  // Coalesce the burst of writes a failing mirror sweep produces.
+  let mirrorsDirty = false;
+  function saveMirrors() {
+    if (mirrorsDirty) return;
+    mirrorsDirty = true;
+    setTimeout(function () {
+      mirrorsDirty = false;
+      lsSet("freq-mirrors", JSON.stringify(state.mirrors));
+    }, 600);
+  }
+  function httpStatusOf(err) {
+    const match = /HTTP (\d{3})/.exec(String((err && err.message) || ""));
+    return match ? Number(match[1]) : 0;
+  }
+  /** Alias table for the smart search: "آلمان" is a country, not a station. */
+  let searchDictCache = null;
+  function searchDict() {
+    if (searchDictCache) return searchDictCache;
+    searchDictCache = {
+      countries: COUNTRIES.map(function (c) {
+        return { cc: c.cc, fa: c.fa, en: c.en };
+      }),
+      langs: LANGS.map(function (l) {
+        return { id: l.id, fa: l.fa, en: l.en };
+      }),
+      tags: GENRES.map(function (g) {
+        return { tag: g.tag, fa: g.fa, en: g.en };
+      }),
+    };
+    return searchDictCache;
   }
 
   function saveFavs() {
@@ -601,11 +804,13 @@
     const query = buildStationsQuery(
       {
         cc: state.cc,
+        city: state.city,
         tag: state.tag,
         language: state.langFilter,
         q: state.q.trim(),
         wave: state.wave,
         hd: state.hd,
+        hls: onlyPlayable() ? "skip" : "",
         order: state.sort,
         offset: state.offset,
         limit: PAGE,
@@ -615,9 +820,18 @@
     try {
       const signal = state.listAbort ? state.listAbort.signal : undefined;
       let data = await getJSON("/json/stations/search?" + query, { ttl: 45 * 1000, signal: signal });
-      if (state.q.trim() && (!data || data.length < 12) && !append) {
+      data = data || [];
+      // An unfiltered browse that answers with nothing is an outage, not a
+      // fact about the world: say so, and let the retry/snapshot path run.
+      if (!append && !data.length && !state.q.trim() && !state.tag && !state.cc && !state.city && !state.langFilter) {
+        const err = new Error("empty directory");
+        err.freq = { empty: true, online: !browserOffline() };
+        throw err;
+      }
+      if (state.q.trim() && data.length < 12 && !append) {
+        const smart = smartFilters(state.q.trim(), searchDict());
         const extra = await getJSON(
-          "/json/stations/search?" + buildTagFallbackQuery(
+          "/json/stations/search?" + buildAltSearchQuery(
             {
               cc: state.cc,
               language: state.langFilter,
@@ -628,12 +842,13 @@
               offset: 0,
               limit: PAGE,
             },
-            PAGE
+            PAGE,
+            smart
           ),
           { ttl: 45 * 1000, signal: signal }
         ).catch(function () { return []; });
-        const seen = new Set((data || []).map(function (s) { return s.stationuuid; }));
-        data = (data || []).concat(
+        const seen = new Set(data.map(function (s) { return s.stationuuid; }));
+        data = data.concat(
           (extra || []).filter(function (s) { return !seen.has(s.stationuuid); })
         );
       }
@@ -648,6 +863,10 @@
       state.hasMore = (data || []).length >= PAGE;
       state.offset += PAGE;
       saveStationCache();
+      // Clear the loading flags *before* rendering: a zero-result page used to
+      // paint skeletons and then never re-paint, which read as "nothing loads".
+      state.loadingFirst = false;
+      state.loadingMore = false;
       renderCountries();
       renderGenres();
       renderLangs();
@@ -655,6 +874,11 @@
     } catch (e) {
       if (isAbort(e) || fetchGen !== state.fetchGen) return;
       state.error = true;
+      if (!(e && e.freq)) {
+        markNetFailure({ status: httpStatusOf(e), online: !browserOffline(), aborted: isAbort(e) });
+      } else {
+        markNetFailure(e.freq);
+      }
       if (!state.stations.length) {
         const cached = readStationCache();
         if (cached.length) {
@@ -663,6 +887,8 @@
           state.cacheAt = Number(safeParse("freq-cache", {}).at) || 0;
         }
       }
+      state.loadingFirst = false;
+      state.loadingMore = false;
       renderCountries();
       renderGenres();
       renderList();
@@ -838,6 +1064,7 @@
     return !!(
       state.tag ||
       state.cc ||
+      state.city ||
       state.langFilter ||
       (state.q && state.q.trim()) ||
       state.band ||
@@ -868,6 +1095,7 @@
     state.mode = "browse";
     state.tag = "";
     state.cc = "";
+    state.city = "";
     state.langFilter = "";
     state.q = "";
     state.band = "";
@@ -977,6 +1205,7 @@
       !state.q.trim() &&
       !state.tag &&
       !state.cc &&
+      !state.city &&
       !state.langFilter
     );
   }
@@ -1006,12 +1235,15 @@
   function stateBlock(kind) {
     const active = hasActiveFilters();
     if (kind === "error") {
+      const why = t(state.net.i18n || state.net.reason || "loadErrorBody");
+      const saved = state.favs.length || state.recents.length;
       return `<div class="state">
-        <div class="state-ico" aria-hidden="true">📡</div>
-        <h3>${esc(t("loadError"))}</h3>
-        <p>${esc(t("loadErrorBody"))}</p>
+        <div class="state-ico" aria-hidden="true">${browserOffline() ? "📴" : "📡"}</div>
+        <h3>${esc(t(browserOffline() ? "offlineTitle" : "loadError"))}</h3>
+        <p>${esc(why)}</p>
         <div class="state-actions">
           <button type="button" class="ghost wide" data-act="retry">${esc(t("retry"))}</button>
+          ${saved ? `<button type="button" class="ghost wide" data-act="local">${esc(t("openSaved"))}</button>` : ""}
           <button type="button" class="ghost wide" data-act="filters">${esc(t("filters"))}</button>
         </div>
       </div>`;
@@ -1033,17 +1265,23 @@
     if (!el) return;
     const n = state.stations.length;
     const home = isHome();
+    // The tail flags belong in the key: without them a list that ends up empty
+    // keeps showing the skeleton it drew while loading — "stations never
+    // load" with a 200 OK in the network tab.
     const viewKey = [
       state.lang,
       state.mode,
       state.tag,
       state.cc,
+      state.city,
       state.langFilter,
       state.q,
       state.sort,
       home ? 1 : 0,
       state.folderId,
       state.forYouTag,
+      state.error ? 1 : 0,
+      state.loadingFirst || state.loadingMore ? 1 : 0,
     ].join("|");
     const full = viewKey !== state.renderKey || !$("cards");
     const keep = full ? 0 : el.scrollTop;
@@ -1053,7 +1291,7 @@
     if (countLine) {
       let lineText = typeof cfn === "function" ? cfn(n) : String(n);
       if (state.loadingMore && !n) lineText = t("loadingStations");
-      else if (state.error && n) lineText += " · " + t("offline");
+      else if (state.error && n) lineText += " · " + (browserOffline() ? t("offline") : t("savedOnly"));
       countLine.textContent = lineText;
     }
     el.setAttribute("aria-busy", state.loadingMore || state.loadingFirst ? "true" : "false");
@@ -1355,16 +1593,23 @@
       clearTimeout(state.watchdog);
       state.watchdog = 0;
     }
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = 0;
+    }
   }
 
   function onAudioStarted(gen) {
     if (gen && gen !== state.playGen) return;
     state.ignoreErr = false;
     state.fails = 0;
+    state.reconnects = 0;
+    state.needsGesture = false;
     state.playing = true;
     state.failed = false;
     state.buffering = false;
     state.status = "";
+    if (state.current && state.current.stationuuid) markStreamResult(state.current.stationuuid, true);
     clearWatchdog();
     if (state.scanning) {
       state.scanning = false;
@@ -1378,6 +1623,125 @@
     renderPlayer();
     tickStand();
     setMediaSession(state.current);
+  }
+
+  /* ------------------------------------------------- stream capability checks
+     A stream the element cannot even open should fail instantly with words,
+     not after a 15-second watchdog and an "قطع شد" shrug.
+  -------------------------------------------------------------------------- */
+  let supportCache = null;
+  function supportProfile() {
+    if (supportCache) return supportCache;
+    const audio = $("audio");
+    const can = function (type) {
+      if (!audio || typeof audio.canPlayType !== "function") return "";
+      try {
+        return String(audio.canPlayType(type) || "");
+      } catch (_) {
+        return "";
+      }
+    };
+    const yes = function (value) {
+      return value === "probably" || value === "maybe";
+    };
+    const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+    const apple = /(^|[^a-z])(iphone|ipad|ipod|macintosh)/i.test(" " + ua.toLowerCase()) &&
+      !/chrome|chromium|edg|android|fxios|opr/i.test(ua);
+    supportCache = {
+      pageSecure: typeof location !== "undefined" && location.protocol === "https:",
+      hlsOk:
+        yes(can("application/vnd.apple.mpegurl")) ||
+        yes(can("application/x-mpegURL")) ||
+        yes(can("application/vnd.apple.mpegurl;codecs=mp4a.40.2")) ||
+        apple,
+      dashOk: yes(can("application/dash+xml")),
+    };
+    return supportCache;
+  }
+  function streamCandidate(station) {
+    const support = supportProfile();
+    const primary = station.url_resolved || station.url;
+    const fmt = streamFormat(primary);
+    const verdict = canPlayStream(fmt, support);
+    if (verdict.playable) return { url: primary, playable: true, fmt: fmt, reason: "" };
+    const alt = station.url && station.url !== primary ? streamFormat(station.url) : null;
+    if (alt && alt.ok && canPlayStream(alt, support).playable) {
+      return { url: alt.url, playable: true, fmt: alt, reason: "" };
+    }
+    if (verdict.reason === "insecure") {
+      const up = upgradeToHttps(primary, "stream");
+      if (up) {
+        const upFmt = streamFormat(up);
+        if (upFmt.ok && canPlayStream(upFmt, support).playable) {
+          return { url: up, playable: true, fmt: upFmt, reason: "", upgraded: true };
+        }
+      }
+    }
+    return { url: primary, playable: false, fmt: fmt, reason: verdict.reason };
+  }
+  function playBlockedCopy(reason) {
+    if (reason === "hls") return t("whyHls");
+    if (reason === "dash") return t("whyDash");
+    if (reason === "insecure") return t("whyInsecure");
+    return t("whyFormat");
+  }
+  /** Local stream health: quarantine stations that just died on us. */
+  function markStreamResult(uuid, ok) {
+    if (!uuid) return;
+    state.streamHealth = noteStream(state.streamHealth, uuid, ok, Date.now());
+    lsSet("freq-stream", JSON.stringify(state.streamHealth));
+  }
+  function isQuarantined(uuid) {
+    return streamCooling(state.streamHealth, uuid, Date.now());
+  }
+  /** Re-arm a one-shot resume for browsers that refused the first autoplay. */
+  function armGestureResume() {
+    if (armGestureResume._on) return;
+    const resume = function () {
+      document.removeEventListener("pointerdown", resume, true);
+      document.removeEventListener("keydown", resume, true);
+      armGestureResume._on = null;
+      const audio = $("audio");
+      if (!audio || !state.current || state.playing) return;
+      state.needsGesture = false;
+      const go = audio.play();
+      if (go && go.then) {
+        go.then(function () { onAudioStarted(state.playGen); }).catch(function () {
+          state.status = t("tapPlay");
+          renderPlayer();
+        });
+      }
+    };
+    armGestureResume._on = resume;
+    document.addEventListener("pointerdown", resume, true);
+    document.addEventListener("keydown", resume, true);
+  }
+
+  function tryReconnect() {
+    const audio = $("audio");
+    if (!audio || !state.current || browserOffline()) return false;
+    if ((state.reconnects || 0) >= 3) return false;
+    state.reconnects = (state.reconnects || 0) + 1;
+    state.buffering = true;
+    state.status = t("reconnecting");
+    renderPlayer();
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = setTimeout(function () {
+      state.reconnectTimer = 0;
+      if (!state.current) return;
+      const gen = state.playGen;
+      try {
+        audio.load();
+      } catch (_) {}
+      const go = audio.play();
+      if (go && go.then) {
+        go.then(function () { onAudioStarted(gen); }).catch(function () {
+          if (gen !== state.playGen) return;
+          if (!tryFallback(gen)) failSkip();
+        });
+      } else onAudioStarted(gen);
+    }, backoff(state.reconnects - 1, 700, 6000));
+    return true;
   }
 
   function tryFallback(gen) {
@@ -1418,18 +1782,50 @@
     state.failed = false;
     state.buffering = true;
     state.retries = 0;
-    state.listenMs = 0;
-    state.listenTick = 0;
+    state.reconnects = 0;
+    state.needsGesture = false;
     remember(s);
     pushRecent(s);
     bumpStats(s);
+    renderPlayer();
+    markCurrent();
+    /* Format gate: skip instantly (and quietly) when this browser cannot
+       decode the stream at all, instead of burning the watchdog on it. */
+    const cand = streamCandidate(s);
+    if (!cand.playable) {
+      state.ignoreErr = false;
+      state.buffering = false;
+      state.playing = false;
+      state.failed = true;
+      state.status = playBlockedCopy(cand.reason);
+      state.audioUrl = "";
+      try {
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+      } catch (_) {}
+      markStreamResult(s.stationuuid, false);
+      renderPlayer();
+      setMediaSession(null);
+      if (navigator.vibrate) {
+        try { navigator.vibrate(15); } catch (_) {}
+      }
+      toast(state.status, {
+        action: t("next"),
+        duration: 5200,
+        onAction: function () { playRel(1); },
+      });
+      if (state.scanning) playRel(1);
+      return;
+    }
+    if (cand.upgraded) toast(t("upgradedHttps"), { duration: 2600 });
     audio.pause();
     try {
-      audio.src = s.url_resolved || s.url;
+      audio.src = cand.url;
       state.audioUrl = audio.src;
       audio.load();
     } catch (_) {
-      state.audioUrl = s.url_resolved || s.url;
+      state.audioUrl = cand.url;
     }
     getJSON("/json/url/" + encodeURIComponent(s.stationuuid), { noCache: true }).catch(function () {});
     renderPlayer();
@@ -1440,12 +1836,19 @@
     const go = audio.play();
     const failed = function (err) {
       if (gen !== state.playGen) return;
-      if (err && err.name === "NotAllowedError") {
+      // Autoplay policy: the browser refused a play() that was not tied to a
+      // gesture. Keep the station loaded, show one clear CTA and resume on the
+      // next tap/keypress instead of silently doing nothing.
+      if (err && (err.name === "NotAllowedError" || /not allowed/i.test(String(err.message || "")))) {
         state.ignoreErr = false;
         state.playing = false;
         state.buffering = false;
+        state.failed = false;
+        state.needsGesture = true;
         state.status = t("tapPlay");
+        armGestureResume();
         renderPlayer();
+        toast(t("autoplayBlocked"), { duration: 3200 });
         return;
       }
       if (tryFallback(gen)) return;
@@ -1470,7 +1873,15 @@
     state.failed = true;
     state.buffering = false;
     clockListen(false);
-    state.status = t("failed");
+    const audio = $("audio");
+    const info = mediaErrorInfo(audio && audio.error);
+    // A dropped connection while we were happily playing is usually our side:
+    // retry the same station first, then blame it.
+    if (state.current && info.retry && (state.reconnects || 0) < 3 && !browserOffline()) {
+      if (tryReconnect()) return;
+    }
+    if (state.current) markStreamResult(state.current.stationuuid, false);
+    state.status = browserOffline() ? t("errNetwork") : info.i18n ? t(info.i18n) : t("failed");
     renderPlayer();
     setMediaSession(state.current);
     if (state.scanning) return;
@@ -1486,12 +1897,26 @@
     const list = state.stations;
     if (!list.length) return;
     if (!state.current) {
-      play(list[0]);
+      play(nextPlayable(list, -1, dir) || list[0]);
       return;
     }
-    const i = list.findIndex(function (s) { return s.stationuuid === state.current.stationuuid; });
-    const n = (i < 0 ? 0 : i + dir + list.length) % list.length;
-    play(list[n]);
+    const start = list.findIndex(function (s) { return s.stationuuid === state.current.stationuuid; });
+    const next = nextPlayable(list, start, dir) || list[(start < 0 ? 0 : start + dir + list.length) % list.length];
+    if (next) play(next);
+  }
+  /** Next station that is neither quarantined after a failure nor unplayable. */
+  function nextPlayable(list, start, dir) {
+    if (!list || !list.length) return null;
+    const support = supportProfile();
+    for (let i = 1; i <= list.length; i += 1) {
+      const s = list[(((start < 0 ? 0 : start) + dir * i) % list.length + list.length) % list.length];
+      if (!s) continue;
+      if (isQuarantined(s.stationuuid)) continue;
+      const fmt = streamFormat(s.url_resolved || s.url);
+      if (!canPlayStream(fmt, support).playable) continue;
+      return s;
+    }
+    return null;
   }
 
   function playRandom() {
@@ -1532,6 +1957,9 @@
       play(state.current);
       return;
     }
+    state.needsGesture = false;
+    state.failed = false;
+    state.reconnects = 0;
     state.buffering = true;
     state.status = t("connecting");
     renderPlayer();
@@ -2028,6 +2456,7 @@
         sort: state.sort,
         wave: state.wave,
         hd: state.hd,
+        onlyPlayable: onlyPlayable(),
       },
     };
     if (typeof URL === "undefined" || !URL.createObjectURL) return;
@@ -2093,6 +2522,11 @@
           if (data.settings.sort) state.sort = String(data.settings.sort);
           if (data.settings.wave) state.wave = String(data.settings.wave);
           if (typeof data.settings.hd === "boolean") state.hd = data.settings.hd;
+          if (typeof data.settings.onlyPlayable === "boolean") {
+            state.onlyPlayable = data.settings.onlyPlayable;
+            lsSet("freq-onlyplayable", data.settings.onlyPlayable ? "1" : "0");
+            syncOnlyPlayableBtn();
+          }
           if (data.settings.lang === "fa" || data.settings.lang === "en") {
             state.lang = data.settings.lang;
             lsSet("freq-lang", state.lang);
@@ -3448,6 +3882,14 @@
       if (home) link.href = home;
       else link.removeAttribute("href");
     }
+    // City page: only offered when the station actually declares a state.
+    const cityBtn = $("sh-city");
+    if (cityBtn) {
+      const city = s.city || "";
+      cityBtn.hidden = !city;
+      cityBtn.textContent = city ? t("moreFromCity")(city) : "";
+      cityBtn.title = city || "";
+    }
     const play = $("sh-play");
     if (play) play.textContent = state.playing && sameStation(state.current, s) ? t("pause") : t("play");
   }
@@ -3495,18 +3937,158 @@
     renderDirectoryStats();
   }
 
-  function setNetBar(offline, back) {
+  /**
+   * The bar is an announcement, never a replacement for the app: it is a slim
+   * strip above the header, the list keeps its own content (cached stations,
+   * favourites, recents) and the retry stays one tap away.
+   * @param {boolean} show
+   * @param {boolean} back  short "we are back" flash after a recovery
+   */
+  function setNetBar(show, back) {
     const bar = $("offline");
     if (!bar) return;
-    bar.hidden = !offline;
-    bar.classList.toggle("is-back", !!back);
+    const copy = back ? null : netCopy();
+    if (back) {
+      bar.hidden = false;
+      bar.dataset.tone = "back";
+      bar.classList.add("is-back");
+      const text = $("offline-text");
+      if (text) text.textContent = t("onlineNow");
+      const sub = $("offline-sub");
+      if (sub) {
+        sub.textContent = t("reloaded");
+        sub.hidden = false;
+      }
+      const retry = $("offline-retry");
+      if (retry) retry.hidden = true;
+      clearTimeout(setNetBar._t);
+      setNetBar._t = setTimeout(function () {
+        bar.hidden = true;
+        bar.classList.remove("is-back");
+        delete bar.dataset.tone;
+      }, 4200);
+      return;
+    }
+    clearTimeout(setNetBar._t);
+    if (!show || !copy) {
+      bar.hidden = true;
+      bar.classList.remove("is-back");
+      delete bar.dataset.tone;
+      return;
+    }
+    bar.hidden = false;
+    bar.classList.remove("is-back");
+    bar.dataset.tone = copy.tone || "degraded";
     const text = $("offline-text");
-    if (text) text.textContent = offline ? t("offlineBody") : t("onlineNow");
+    if (text) text.textContent = copy.text;
+    const sub = $("offline-sub");
+    if (sub) {
+      sub.textContent = copy.sub || "";
+      sub.hidden = !copy.sub;
+    }
+    const retry = $("offline-retry");
+    if (retry) retry.hidden = !copy.retry;
   }
 
-  function retryLoad() {
+  /** "Only streams this browser can play" — keeps HLS-only stations out of the way. */
+  function toggleOnlyPlayable() {
+    state.onlyPlayable = !onlyPlayable();
+    lsSet("freq-onlyplayable", state.onlyPlayable ? "1" : "0");
+    apiCache.clear();
+    syncOnlyPlayableBtn();
+    loadStations().catch(function () {});
+    toast(state.onlyPlayable ? t("onlyPlayableOn") : t("onlyPlayableOff"));
+  }
+  function syncOnlyPlayableBtn() {
+    const on = onlyPlayable();
+    document.querySelectorAll("[data-act='playable']").forEach(function (b) {
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+  /** Hide controls this browser cannot back (no dead buttons on screen). */
+  function syncVoiceBtn() {
+    const btn = $("mic-btn");
+    if (!btn) return;
+    const supported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    btn.hidden = !supported;
+    if (!supported) {
+      btn.removeAttribute("data-act");
+      btn.setAttribute("title", t("noVoice"));
+      btn.setAttribute("aria-hidden", "true");
+      btn.tabIndex = -1;
+    } else {
+      btn.setAttribute("title", t("voice"));
+      btn.removeAttribute("aria-hidden");
+      btn.tabIndex = 0;
+    }
+  }
+  /** Show favourites/recents when the directory is unreachable. */
+  function showLocalLibrary() {
+    state.mode = state.favs.length ? "fav" : "recent";
     state.error = false;
-    state.offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    applyLocalMode();
+    syncUrl();
+    if (!state.stations.length) toast(t("nothingSaved"));
+  }
+  /**
+   * "این ایستگاه خراب است" — tells Radio Browser the stream is dead (their
+   * own health tracker, no backend of ours), quarantines it locally so the
+   * auto-skipper avoids it, and hides it with an undo.
+   */
+  function reportBroken(station) {
+    const s = normalizeStation(station);
+    if (!s) return;
+    markStreamResult(s.stationuuid, false);
+    getJSON("/json/url/" + encodeURIComponent(s.stationuuid) + "?broken=true", { noCache: true })
+      .then(function () { toast(t("brokenSent"), { duration: 2600 }); })
+      .catch(function () { toast(t("brokenLocal"), { duration: 3200 }); });
+    if (state.current && sameStation(state.current, s)) {
+      const audio = $("audio");
+      if (audio) {
+        try {
+          audio.pause();
+        } catch (_) {}
+      }
+      state.playing = false;
+      state.buffering = false;
+      state.failed = false;
+      state.status = "";
+      clockListen(false);
+    }
+    hideStation(s);
+    renderPlayer();
+  }
+  /** Refresh the countdown inside the status bar (called from the 1s tick). */
+  function tickNetBar() {
+    const bar = $("offline");
+    if (!bar || bar.hidden || bar.classList.contains("is-back")) return;
+    const copy = netCopy();
+    if (!copy) {
+      bar.hidden = true;
+      return;
+    }
+    const text = $("offline-text");
+    if (text && text.textContent !== copy.text) text.textContent = copy.text;
+    const sub = $("offline-sub");
+    if (sub) {
+      sub.textContent = copy.sub || "";
+      sub.hidden = !copy.sub;
+    }
+  }
+
+  function retryLoad(options) {
+    const opts = options || {};
+    state.error = false;
+    state.offline = browserOffline();
+    if (opts.auto) {
+      // A background retry must not keep escalating forever if it keeps failing.
+      if ((state.net.attempts || 0) > 10) return;
+    } else {
+      state.net.attempts = 0;
+      state.net.retryAt = 0;
+      apiCache.clear();
+    }
     const loader = $("loader");
     if (loader && loader.classList.contains("failed")) {
       loader.classList.remove("failed");
@@ -3553,6 +4135,10 @@
       state.langFilter = f.language;
       state.homeAll = true;
     }
+    if (f.city) {
+      state.city = f.city;
+      state.homeAll = true;
+    }
     if (f.q) {
       state.q = f.q;
       const field = $("q");
@@ -3576,6 +4162,7 @@
         mode: state.mode,
         cc: state.cc,
         tag: state.tag,
+        city: state.city,
         langFilter: state.langFilter,
         q: state.q,
         sort: state.sort,
@@ -3970,6 +4557,22 @@
     on("sh-share", function () { shareStation(state.sheet); });
     on("sh-copy", function () { copyStation(state.sheet); });
     on("sh-vote", function () { voteStation(state.sheet); });
+    on("sh-broken", function () { reportBroken(state.sheet); });
+    on("sh-city", function () {
+      const city = state.sheet && state.sheet.city;
+      if (!city) {
+        toast(t("empty"));
+        return;
+      }
+      state.mode = "browse";
+      state.city = city;
+      state.tag = "";
+      state.homeAll = true;
+      closeSheet();
+      renderGenres();
+      loadStations().catch(function () {});
+      syncUrl();
+    });
     on("sh-hide", function () { hideStation(state.sheet); });
     on("sh-similar", function () {
       const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0].trim();
@@ -4025,6 +4628,19 @@
         if (!state.current || state.status === t("failed")) return;
         state.buffering = true;
         renderPlayer();
+      });
+      audio.addEventListener("stalled", function () {
+        if (!state.current || !state.playing) return;
+        state.buffering = true;
+        state.status = t("buffering");
+        renderPlayer();
+        if (navigator.onLine === false) return;
+        const gen = state.playGen;
+        setTimeout(function () {
+          if (gen !== state.playGen || state.playing === false) return;
+          if (audio.readyState >= 2) return;
+          failSkip();
+        }, 9000);
       });
       audio.addEventListener("canplay", function () {
         if (!state.buffering) return;
@@ -4201,6 +4817,8 @@
       } else if (act === "install") installApp();
       else if (act === "geo") enableGeo();
       else if (act === "retry") retryLoad();
+      else if (act === "local") showLocalLibrary();
+      else if (act === "playable") toggleOnlyPlayable();
       else if (act === "update") checkForUpdates();
       else if (act === "reset") {
         if (window.confirm(t("resetTitle") + "\n" + t("resetBody"))) resetAllData();
@@ -4297,9 +4915,19 @@
     /* Network state ----------------------------------------------------- */
     addEventListener("online", function () {
       markOnline();
+      state.net.attempts = 0;
       retryLoad();
     });
     addEventListener("offline", function () { markOffline(); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) return;
+      // Returning to the tab is the cheapest moment to re-probe a mirror that
+      // failed while we were away — but only when the screen is actually empty.
+      if (!state.stations.length && !browserOffline() && state.net.kind && state.net.kind !== "ok") {
+        state.net.attempts = Math.min(state.net.attempts || 0, 8);
+        retryLoad({ auto: true });
+      }
+    });
 
     /* Persistence + clock ----------------------------------------------- */
     addEventListener("pagehide", function () { saveStats(true); });
@@ -4316,6 +4944,7 @@
       if (state.night) tickStand();
       updateSleepLeft();
       checkAlarm();
+      tickNetBar();
     }, 1000);
     setInterval(renderDirectoryStats, 60000);
   }
@@ -4337,7 +4966,10 @@
     el.classList.remove("off");
     el.classList.add("failed");
     el.removeAttribute("aria-hidden");
-    setText("load-sub", t("loadError"));
+    // Say *why* the list is empty. "You're offline" is only honest when the
+    // browser itself reports no connection.
+    const copy = netCopy();
+    setText("load-sub", copy ? copy.text : t("loadErrorBody"));
     const retry = $("load-retry");
     if (retry) retry.hidden = false;
   }
@@ -4366,7 +4998,9 @@
       renderDirectoryStats();
       renderSearchHints();
       syncGeoBtn();
-      if (state.offline) setNetBar(true);
+      syncOnlyPlayableBtn();
+      syncVoiceBtn();
+      if (browserOffline()) markOffline(); else setNetBar(false);
       setVol(state.userVol, true);
       renderPlayer();
       tickClock();

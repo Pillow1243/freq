@@ -56,13 +56,35 @@ const STATIONS = [
   },
 ];
 
-function makeDom(search) {
+/** A Response-like object good enough for app.js and the tests. */
+function fakeResponse(body, status) {
+  const code = status || 200;
+  return {
+    ok: code >= 200 && code < 300,
+    status: code,
+    headers: { get: function () { return null; } },
+    json: function () {
+      return Promise.resolve(typeof body === "string" ? JSON.parse(body) : body);
+    },
+  };
+}
+
+function makeDom(search, options) {
+  const opts = options || {};
   const dom = new JSDOM(html, {
     url: "https://freq.test/" + (search || ""),
     runScripts: "outside-only",
     pretendToBeVisual: true,
   });
   const { window } = dom;
+  if (typeof opts.onLine === "boolean") {
+    Object.defineProperty(window.navigator, "onLine", { value: opts.onLine, configurable: true });
+  }
+  if (opts.seed) {
+    Object.keys(opts.seed).forEach(function (key) {
+      window.localStorage.setItem(key, opts.seed[key]);
+    });
+  }
   window.console = console;
   window.matchMedia = function () {
     return {
@@ -109,7 +131,7 @@ function makeDom(search) {
   window.HTMLMediaElement.prototype.load = function () {};
 
   const calls = [];
-  window.fetch = function (url) {
+  const defaultFetch = function (url) {
     const target = String(url);
     calls.push(target);
     let body = {};
@@ -122,14 +144,14 @@ function makeDom(search) {
       ];
     } else if (target.indexOf("/json/stations/search") >= 0) body = STATIONS;
     else if (target.indexOf("open-meteo") >= 0) body = { current: { temperature_2m: 21.4, weather_code: 1 } };
-    return Promise.resolve({
-      ok: true,
-      status: 200,
-      json: function () {
-        return Promise.resolve(body);
-      },
-    });
+    return Promise.resolve(fakeResponse(body, 200));
   };
+  window.fetch = opts.fetch
+    ? function (url, init) {
+        calls.push(String(url));
+        return opts.fetch(String(url), init, fakeResponse);
+      }
+    : defaultFetch;
   window.eval(coreSource);
   window.eval(i18nSource);
   window.eval(appSource);
@@ -160,4 +182,14 @@ function click(window, el) {
   el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
-module.exports = { makeDom, waitFor, click, STATIONS, html, coreSource, i18nSource, appSource };
+module.exports = {
+  makeDom,
+  waitFor,
+  click,
+  fakeResponse,
+  STATIONS,
+  html,
+  coreSource,
+  i18nSource,
+  appSource,
+};

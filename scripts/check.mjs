@@ -137,15 +137,19 @@ else pass(`all ${used.size} used translation keys exist`);
   if (dups.length) fail("duplicate i18n keys: " + [...new Set(dups)].join(", "));
   else pass("no duplicate i18n keys");
 
-  const htmlActs = new Set([...html.matchAll(/data-act="([^"]+)"/g)].map((m) => m[1]));
+  // Rendered acts live both in index.html and in the markup app.js builds
+  // (rails, state blocks, sheets) — scanning both kills the old false alarm
+  // about runtime-only actions while still catching genuinely dead buttons.
+  const renderedActs = new Set([
+    ...html.matchAll(/data-act="([^"]+)"/g),
+    ...app.matchAll(/data-act="([^"]+)"/g),
+  ].map((m) => m[1]));
   const codeActs = new Set([...app.matchAll(/act === "([^"]+)"/g)].map((m) => m[1]));
-  const dead = [...htmlActs].filter((a) => !codeActs.has(a));
+  const dead = [...renderedActs].filter((a) => !codeActs.has(a));
   if (dead.length) fail("buttons with no data-act handler: " + dead.join(", "));
-  else pass(`all ${htmlActs.size} data-act buttons are handled`);
+  else pass(`all ${renderedActs.size} data-act buttons are handled`);
 
-  // `seeall` only exists on rails that app.js injects at runtime.
-  const runtimeOnly = new Set(["seeall"]);
-  const unused = [...codeActs].filter((a) => !htmlActs.has(a) && !runtimeOnly.has(a));
+  const unused = [...codeActs].filter((a) => !renderedActs.has(a));
   if (unused.length) warn("data-act handlers never rendered: " + unused.join(", "));
 }
 

@@ -34,11 +34,11 @@
     <meta name="twitter:title" content="FREQ — Live radio of the world" />
     <meta name="twitter:description" content="۵۰ تم، ۱۱ پوستهٔ پلیر و هزاران ایستگاه رادیویی زندهٔ جهان." />
     <meta name="twitter:image" content="https://pillow1243.github.io/freq/assets/og.png" />
-    <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=33" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png?v=33" />
-    <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png?v=33" />
-    <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png?v=33" />
-    <link rel="manifest" href="./manifest.webmanifest?v=33" />
+    <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=34" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png?v=34" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png?v=34" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png?v=34" />
+    <link rel="manifest" href="./manifest.webmanifest?v=34" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="FREQ" />
@@ -53,7 +53,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=33" />
+    <link rel="stylesheet" href="./styles.css?v=34" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -87,13 +87,16 @@
 
     <div id="offline" class="net-bar" role="status" aria-live="polite" hidden>
       <span class="net-dot" aria-hidden="true"></span>
-      <span id="offline-text" data-i18n="offlineBody">You're offline — showing what we saved for you.</span>
-      <button type="button" class="ghost wide" data-act="retry" data-i18n="retry">Retry</button>
+      <span class="net-msg">
+        <span id="offline-text" data-i18n="offlineBody">You're offline — showing what we saved for you.</span>
+        <span id="offline-sub" class="net-sub" hidden></span>
+      </span>
+      <button id="offline-retry" type="button" class="ghost wide" data-act="retry" data-i18n="retry">Retry</button>
     </div>
 
     <header class="top">
       <button class="brand" id="about-btn" type="button">
-        <img src="./assets/icon-192.png?v=33" width="40" height="40" alt="FREQ" />
+        <img src="./assets/icon-192.png?v=34" width="40" height="40" alt="FREQ" />
         <span class="brand-txt">
           <span class="word" dir="ltr">FREQ</span>
           <span class="tag" data-i18n="tag">رادیوی زندهٔ جهان</span>
@@ -113,7 +116,7 @@
           placeholder="جستجوی ایستگاه، سبک، شهر…"
         />
         <datalist id="search-hints"></datalist>
-        <button type="button" class="mic" data-act="voice" id="mic-btn" data-i18n-aria="voice">
+        <button type="button" class="mic" data-act="voice" id="mic-btn" data-i18n-aria="voice" data-i18n-title="voice">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.6a3.2 3.2 0 0 0 3.2-3.2V6.8a3.2 3.2 0 1 0-6.4 0v4.6A3.2 3.2 0 0 0 12 14.6zm6.2-3.2a6.2 6.2 0 0 1-12.4 0H4.2a7.8 7.8 0 0 0 7 7.55V21h1.6v-2.05a7.8 7.8 0 0 0 7-7.55h-1.6z"/></svg>
         </button>
       </form>
@@ -164,6 +167,8 @@
         <div class="drawer-quick">
           <button type="button" class="ghost wide keys-btn" data-act="near" data-i18n="near">نزدیک</button>
           <button type="button" class="ghost wide keys-btn" data-act="hd" id="hd-btn" aria-pressed="false">HD</button>
+          <button type="button" class="ghost wide keys-btn" data-act="playable" id="playable-btn" aria-pressed="true"
+            data-i18n="onlyPlayable" data-i18n-title="onlyPlayableHint">فقط قابل‌پخش‌ها</button>
           <button type="button" class="ghost wide keys-btn" data-act="clearf" id="clear-btn" hidden data-i18n="clear">پاک کردن</button>
         </div>
         <div class="sorts" id="sorts" role="group" aria-label="Sort"></div>
@@ -241,7 +246,7 @@
           <button type="button" class="ghost wide keys-btn" data-act="update" data-i18n="update">به‌روزرسانی</button>
           <button type="button" class="ghost wide keys-btn dangerous" data-act="reset" data-i18n="reset">پاک کردن داده‌ها</button>
         </div>
-        <p class="set-ver" id="set-ver" dir="ltr">FREQ · v2.1.0</p>
+        <p class="set-ver" id="set-ver" dir="ltr">FREQ · v2.1.1</p>
       </div>
     </div>
 
@@ -438,6 +443,8 @@
         <button id="sh-share" class="ghost wide" type="button" data-i18n="share">اشتراک</button>
         <button id="sh-copy" class="ghost wide" type="button" data-i18n="copyLink">کپی لینک</button>
         <button id="sh-vote" class="ghost wide" type="button" data-i18n="vote">رأی بده</button>
+        <button id="sh-city" class="ghost wide" type="button" hidden>ایستگاه‌های این شهر</button>
+        <button id="sh-broken" class="ghost wide dangerous" type="button" data-i18n="reportBroken">گزارش ایستگاه خراب</button>
         <button id="sh-hide" class="ghost wide" type="button" data-i18n="hide">مخفی</button>
         <a id="sh-home" class="ghost wide" target="_blank" rel="noopener noreferrer" hidden data-i18n="homepage">سایت ایستگاه</a>
       </div>
@@ -552,18 +559,18 @@
 
     <div id="about" class="about" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
       <div class="about-card">
-        <img src="./assets/icon-192.png?v=33" width="88" height="88" alt="FREQ" />
+        <img src="./assets/icon-192.png?v=34" width="88" height="88" alt="FREQ" />
         <div class="word" dir="ltr">FREQ</div>
         <h3 id="about-title" data-i18n="aboutTitle"></h3>
         <p class="about-body" data-i18n="aboutBody"></p>
         <p class="about-maker" data-i18n="aboutMaker">ساخته شده توسط مبین.آ</p>
-        <p class="about-ver" id="about-ver" dir="ltr">v2.1.0</p>
+        <p class="about-ver" id="about-ver" dir="ltr">v2.1.1</p>
         <button id="about-close" type="button" data-i18n="close">بستن</button>
       </div>
     </div>
 
     <div id="loader" role="status" aria-live="polite">
-      <img src="./assets/icon-192.png?v=33" width="92" height="92" alt="" />
+      <img src="./assets/icon-192.png?v=34" width="92" height="92" alt="" />
       <div class="word" dir="ltr">FREQ</div>
       <div id="load-sub" data-i18n="loading">در حال اتصال…</div>
       <button id="load-retry" class="ghost wide" type="button" data-act="retry" data-i18n="retry" hidden>تلاش دوباره</button>
@@ -576,8 +583,8 @@
     </noscript>
 
     <audio id="audio" preload="none"></audio>
-    <script defer src="./core.js?v=33"></script>
-    <script defer src="./i18n.js?v=33"></script>
-    <script defer src="./app.js?v=33"></script>
+    <script defer src="./core.js?v=34"></script>
+    <script defer src="./i18n.js?v=34"></script>
+    <script defer src="./app.js?v=34"></script>
   </body>
 </html>

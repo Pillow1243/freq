@@ -25,8 +25,10 @@ Thousands of stations, a world map, car mode, sleep timer, folders, 50 themes,
 - **No build step.** Plain HTML, CSS and JavaScript served straight from GitHub Pages.
 - **Fast by default.** Code-split helpers, incremental list rendering, lazy artwork,
   `content-visibility` cards, canvas FX capped at 2× DPR and paused in background tabs.
-- **Offline-first.** A real service worker precaches the shell, keeps the last station
-  snapshot and falls back to saved favourites when the directory is unreachable.
+- **Offline-first, honestly.** A real service worker precaches the shell and keeps the
+  last station snapshot. A directory outage is never dressed up as “you are offline”:
+  the banner says which of the two happened, retries with backoff and keeps your saved
+  stations on screen.
 - **Accessible.** Skip link, focus traps and focus restore for every dialog, ARIA state
   on toggles, live regions for playback and counts, reduced-motion and high-contrast modes.
 - **Bilingual.** Persian (RTL, Jalali date) and English (LTR), switchable at runtime.
@@ -38,7 +40,8 @@ Thousands of stations, a world map, car mode, sleep timer, folders, 50 themes,
 | Listen | Organise | Interface |
 | --- | --- | --- |
 | 120-station pages with infinite scroll | Favourites (200) and recents (40) | 50 hand-tuned themes, 11 player styles |
-| Name, tag, country, language and HD filters | Six presets (tap to play, hold to save) | Persian / English, Jalali dates |
+| Smart search: name, tag, country, **city**, language and HD filters | Six presets (tap to play, hold to save) | Persian / English, Jalali dates |
+| Playable-only filter (skips HLS/http-only streams) | Per-station stream health + **report broken** | Smart status bar: offline vs. unreachable vs. rate-limited |
 | Near-me and random discovery | Folders | Stage view, vinyl, VU meters, tuner |
 | World map (click a dot to play) | Versioned JSON backup/export/import | Car mode, night clock, sleep timer |
 | Scan mode and auto-skip on dead streams | Listening statistics | Alarm, Media Session, keyboard shortcuts |
@@ -64,6 +67,7 @@ assets/                 icons + social card
 scripts/dev-server.mjs  zero-dependency local server with correct MIME types
 scripts/check.mjs       static integrity checks (ids, i18n, CSP hash, assets…)
 tests/                  node:test unit + jsdom boot/interaction tests
+docs/CHECKLIST-STATUS.md product/technical checklist mapped to code
 server.py               tiny Python fallback server
 ```
 
@@ -109,7 +113,7 @@ and a small request log. Any static server works — there is no bundler.
 | --- | --- |
 | `npm run check` | IDs, missing assets, i18n parity & duplicates, dead `data-act`s, CSP hash, version lockstep, manifest, SW precache |
 | `npm run lint` | ESLint 9 flat config for browser + Node globals |
-| `npm test` | `node --test` — 32 unit + jsdom integration tests |
+| `npm test` | `node --test` — 58 unit + jsdom integration tests |
 | `npm run verify` | all of the above |
 | `npm run serve:py` | the original Python server |
 

@@ -3,6 +3,63 @@
 All notable changes to FREQ are documented here. The site has no build step, so
 versions are tagged in `package.json` and `APP_VERSION` in `app.js`.
 
+## 2.1.1 — 2026-10-19
+
+A P0 pass on the things that actually stopped the app from working: the fake
+offline message, stations that never loaded, and playback failures that gave no
+reason. Status of every checklist item: `docs/CHECKLIST-STATUS.md`.
+
+### Fixed
+- **The service worker no longer answers a failed directory lookup with an empty
+  `200 []`.** That fake success suppressed mirror failover, locked the empty
+  answer into the 45s API cache and left the list blank — it is the main reason
+  stations did not load. A `504` is returned now, and the SW timeout no longer
+  races the page timeout.
+- **A directory outage is no longer reported as “You’re offline”.** Network
+  state is classified (`offline / network / timeout / server / rate / blocked /
+  api / empty`) into an honest banner tone, retry countdown and per-reason copy;
+  the saved snapshot and favourites stay on screen behind it.
+- **Zero-result lists were stuck on skeletons.** The loading flags are cleared
+  before rendering and are now part of the render key.
+- **Dead mirrors stalled every first paint.** Only `de1`/`de2`/`all` answer
+  today, so the mirror list was fixed and per-host failures get an escalating
+  cooldown (`freq-mirrors`) with a 15s total budget instead of 4×9s.
+- **An empty answer for an unfiltered browse is treated as an outage** (retry +
+  snapshot) instead of “no stations exist”, while a genuinely empty search still
+  shows the normal empty state.
+- Empty API results are no longer cached, so “Retry” actually re-requests.
+- Station logos are upgraded to `https:` to stop mixed-content blocks on GitHub
+  Pages.
+
+### Added
+- **Stream capability detection**: HLS/DASH/http-only streams fail fast with an
+  explicit reason (`whyHls`, `whyInsecure`, …) and a “Next” action instead of a
+  15s watchdog; an http-only stream is retried over `https` first.
+- **“Playable only” filter** (`hls=false`), auto-enabled on browsers without
+  native HLS and auto-disabled on Safari/iOS; persisted and covered by
+  backup/export.
+- **Reconnect with backoff** (up to 3 attempts on the same stream) plus `stalled`
+  handling and `MediaError.code` → message mapping.
+- **Per-station stream health**: a station that dies is quarantined locally
+  (exponential, 5min–6h) and skipped by next/prev/scan; the new
+  **“Report broken”** action also flags it in the directory (`?broken=true`) and
+  hides it with an undo.
+- **Search by country, city, genre and language**: `smartFilters` promotes a
+  query that names a country/language/genre to its own directory field
+  (Persian-aware normalisation), city filters round-trip through `?city=`, and
+  the station sheet gained “More from <city>”.
+- **Autoplay recovery**: `needsGesture` state, a toast and a one-shot
+  pointer/key listener that resumes the same station.
+- Hidden, unsupported mic button; `data-i18n-title` tooltips; 44px touch
+  targets for player/header controls; a real bilingual offline page in the SW.
+- 25 new unit tests + 10 new behaviour tests (58 total).
+
+### Changed
+- `scripts/check.mjs` now scans `app.js` templates for `data-act`, so dead
+  buttons fail CI instead of being excused by an allow-list.
+- Mirrors list reordered with live health; cache-busting `?v=34`,
+  `freq-v2.1.1` service-worker cache.
+
 ## 2.1.0 — 2026-10-19
 
 A major visual refresh focused on personalisation and a cleaner product identity.

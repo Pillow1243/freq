@@ -56,13 +56,35 @@ const STATIONS = [
   },
 ];
 
-function makeDom(search) {
+/** A Response-like object good enough for app.js and the tests. */
+function fakeResponse(body, status) {
+  const code = status || 200;
+  return {
+    ok: code >= 200 && code < 300,
+    status: code,
+    headers: { get: function () { return null; } },
+    json: function () {
+      return Promise.resolve(typeof body === "string" ? JSON.parse(body) : body);
+    },
+  };
+}
+
+function makeDom(search, options) {
+  const opts = options || {};
   const dom = new JSDOM(html, {
     url: "https://freq.test/" + (search || ""),
     runScripts: "outside-only",
     pretendToBeVisual: true,
   });
   const { window } = dom;
+  if (typeof opts.onLine === "boolean") {
+    Object.defineProperty(window.navigator, "onLine", { value: opts.onLine, configurable: true });
+  }
+  if (opts.seed) {
+    Object.keys(opts.seed).forEach(function (key) {
+      window.localStorage.setItem(key, opts.seed[key]);
+    });
+  }
   window.console = console;
   window.matchMedia = function () {
     return {
@@ -102,14 +124,72 @@ function makeDom(search) {
   window.open = function () {
     return null;
   };
+  /* A tiny WebAudio double. jsdom ships no AudioContext, so the graph code path
+     would silently be skipped; this records what the app patched together so the
+     EQ tests can assert on real wiring instead of on nothing. */
+  if (opts.audioGraph) {
+    const log = (window.__fxLog = { nodes: [], calls: [] });
+    const param = function (name) {
+      return {
+        value: 0,
+        setValueAtTime: function (v) { log.calls.push(name + ".setValueAtTime=" + v); },
+        setTargetAtTime: function (v) { log.calls.push(name + ".setTargetAtTime=" + v); },
+        linearRampToValueAtTime: function () {},
+        cancelScheduledValues: function () {},
+      };
+    };
+    const node = function (kind) {
+      return {
+        kind: kind,
+        type: "",
+        connect: function (target) { log.nodes.push(kind + "->" + (target && target.kind)); return target; },
+        disconnect: function () { log.nodes.push(kind + "!disconnect"); },
+        frequency: param(kind + ".frequency"),
+        Q: param(kind + ".Q"),
+        gain: param(kind + ".gain"),
+        threshold: param(kind + ".threshold"),
+        knee: param(kind + ".knee"),
+        ratio: param(kind + ".ratio"),
+        attack: param(kind + ".attack"),
+        release: param(kind + ".release"),
+        makeupGain: param(kind + ".makeupGain"),
+      };
+    };
+    function FakeAudioContext() {
+      log.calls.push("ctx");
+      this.state = "suspended";
+      this.currentTime = 0;
+      this.destination = node("dest");
+      this.sampleRate = 48000;
+      this.createBiquadFilter = function () { return node("biquad"); };
+      this.createDynamicsCompressor = function () { return node("comp"); };
+      this.createGain = function () { return node("gain"); };
+      this.createMediaElementSource = function (el) {
+        log.calls.push("source:" + (el && el.id));
+        return node("src");
+      };
+      this.resume = function () { log.calls.push("resume"); this.state = "running"; return Promise.resolve(); };
+    }
+    window.AudioContext = FakeAudioContext;
+    if (opts.audioGraph === "throws") {
+      window.AudioContext = function () { throw new Error("AudioContext blocked"); };
+    }
+  }
   window.HTMLMediaElement.prototype.play = function () {
+    /* Chrome rejects play() outright when a crossOrigin="anonymous" resource is
+       refused by CORS, which is exactly the case the fallback has to survive. */
+    if (opts.rejectFxPlay && this.id === "audio-fx") {
+      const err = new Error("load of media resource failed");
+      err.name = "NotSupportedError";
+      return Promise.reject(err);
+    }
     return Promise.resolve();
   };
   window.HTMLMediaElement.prototype.pause = function () {};
   window.HTMLMediaElement.prototype.load = function () {};
 
   const calls = [];
-  window.fetch = function (url) {
+  const defaultFetch = function (url) {
     const target = String(url);
     calls.push(target);
     let body = {};
@@ -122,14 +202,14 @@ function makeDom(search) {
       ];
     } else if (target.indexOf("/json/stations/search") >= 0) body = STATIONS;
     else if (target.indexOf("open-meteo") >= 0) body = { current: { temperature_2m: 21.4, weather_code: 1 } };
-    return Promise.resolve({
-      ok: true,
-      status: 200,
-      json: function () {
-        return Promise.resolve(body);
-      },
-    });
+    return Promise.resolve(fakeResponse(body, 200));
   };
+  window.fetch = opts.fetch
+    ? function (url, init) {
+        calls.push(String(url));
+        return opts.fetch(String(url), init, fakeResponse);
+      }
+    : defaultFetch;
   window.eval(coreSource);
   window.eval(i18nSource);
   window.eval(appSource);
@@ -160,4 +240,14 @@ function click(window, el) {
   el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
-module.exports = { makeDom, waitFor, click, STATIONS, html, coreSource, i18nSource, appSource };
+module.exports = {
+  makeDom,
+  waitFor,
+  click,
+  fakeResponse,
+  STATIONS,
+  html,
+  coreSource,
+  i18nSource,
+  appSource,
+};

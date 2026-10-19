@@ -13,6 +13,23 @@
     safeUrl,
     isWebUrl,
     esc,
+    classifyFailure,
+    backoff,
+    mirrorPlan,
+    noteMirror,
+    noteStream,
+    streamCooling,
+    streamFormat,
+    canPlayStream,
+    upgradeToHttps,
+    mediaErrorInfo,
+    EQ_BANDS,
+    eqPreset,
+    eqPresetNames,
+    compressorSettings,
+    effectiveVolume,
+    smartFilters,
+    buildAltSearchQuery,
     hashHue,
     fakeFreq,
     initials,
@@ -23,7 +40,6 @@
     normalizeStation,
     normalizeStations,
     buildStationsQuery,
-    buildTagFallbackQuery,
     parseFilters,
     filtersToQuery,
     formatNumber,
@@ -37,14 +53,28 @@
     if (typeof document === "undefined" || !document || !document.getElementById) return null;
     return document.getElementById(id);
   };
+  /* Same idea for selector walks: `document` is gone once the window is torn
+     down, and a deferred render must degrade to “nothing to update”. */
+  const bySel = function (selector) {
+    if (typeof document === "undefined" || !document || !document.querySelectorAll) return [];
+    return Array.prototype.slice.call(document.querySelectorAll(selector));
+  };
+  /* Mirrors, in the order they should be tried. Radio Browser rotates its
+     public servers often (fi1/nl1 have been unreachable for weeks), so the
+     list is a hint, not a promise: dead ones get a cooldown and the healthy
+     one is remembered in `state.host`. */
   const HOSTS = [
     "https://de1.api.radio-browser.info",
-    "https://fi1.api.radio-browser.info",
-    "https://nl1.api.radio-browser.info",
+    "https://de2.api.radio-browser.info",
     "https://all.api.radio-browser.info",
+    "https://nl1.api.radio-browser.info",
+    "https://fi1.api.radio-browser.info",
+    "https://at1.api.radio-browser.info",
   ];
+  const HOST_TIMEOUT = 6500;
+  const HOST_BUDGET = 15000;
   const PAGE = 120;
-  const APP_VERSION = "2.1.0";
+  const APP_VERSION = "2.2.0";
   const API_TTL = 30 * 1000;
   const DIRSTATS_TTL = 6 * 60 * 60 * 1000;
   const COUNTRIES = [
@@ -252,6 +282,12 @@
     }
   }
 
+  /** Read a bounded number out of localStorage with a fallback. */
+  function numRange(raw, min, max, fallback) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
   const storedVol = Number(lsGet("freq-vol", "0.85"));
   const storedGeo = safeParse("freq-geo", null);
   const state = {
@@ -259,6 +295,7 @@
     host: HOSTS[0],
     cc: "",
     tag: "",
+    city: "",
     langFilter: "",
     q: "",
     sort: lsGet("freq-sort", "clickcount"),
@@ -339,6 +376,35 @@
         : null,
     error: false,
     offline: typeof navigator !== "undefined" && navigator.onLine === false,
+    net: { kind: "", i18n: "", reason: "", at: 0, retryAt: 0, attempts: 0, status: 0 },
+    netTimer: 0,
+    mirrors: (function () {
+      const raw = safeParse("freq-mirrors", null);
+      return raw && typeof raw === "object" ? raw : {};
+    })(),
+    streamHealth: (function () {
+      const raw = safeParse("freq-stream", null);
+      return raw && typeof raw === "object" ? raw : {};
+    })(),
+    // No stored preference yet: default to "playable only" on browsers that
+    // cannot decode HLS (Chrome/Firefox/Windows Edge), and keep everything on
+    // Safari/iOS where the element plays m3u8 natively.
+    onlyPlayable: lsGet("freq-onlyplayable", "") === "" ? null : lsGet("freq-onlyplayable", "") === "1",
+    needsGesture: false,
+    reconnects: 0,
+    reconnectTimer: 0,
+    /* Audio effects. `useFx` picks which of the two <audio> elements owns the
+       current playback: the plain one (no graph, works with every station) or
+       the CORS one (fed into WebAudio so EQ/normalisation can touch it). */
+    useFx: false,
+    eq: Core.sanitizeEq(safeParse("freq-eq", null)),
+    normalize: lsGet("freq-normalize", "0") === "1",
+    normStrength: numRange(lsGet("freq-norm-strength", "0.55"), 0, 1, 0.55),
+    master: numRange(lsGet("freq-master", "1"), 0.4, 1.5, 1),
+    trims: Core.sanitizeTrims(safeParse("freq-trims", {})),
+    noCors: (safeParse("freq-nocors", []) || []).filter(function (x) {
+      return typeof x === "string";
+    }).slice(0, 200),
     renderKey: "",
     renderedIds: [],
     cacheAt: 0,
@@ -375,6 +441,10 @@
     });
     document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
       el.placeholder = d[el.dataset.i18nPlaceholder] || "";
+    });
+    document.querySelectorAll("[data-i18n-title]").forEach(function (el) {
+      const tip = d[el.dataset.i18nTitle];
+      if (typeof tip === "string") el.title = tip;
     });
     document.querySelectorAll("[data-i18n-aria]").forEach(function (el) {
       const label = d[el.dataset.i18nAria];
@@ -425,6 +495,10 @@
     syncVersion();
     renderDirectoryStats();
     renderSearchHints();
+    renderEq();
+    // data-i18n just overwrote the status bar with generic copy — re-apply the
+    // real network diagnosis (offline vs. unreachable vs. rate limited).
+    tickNetBar();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
@@ -439,17 +513,108 @@
   function trimApiCache() {
     while (apiCache.size > 60) apiCache.delete(apiCache.keys().next().value);
   }
-  function markOnline() {
-    if (state.offline) {
-      state.offline = false;
-      setNetBar(false);
+  /* ------------------------------------------------------------- network
+     Three honest states, because "you are offline" and "we could not reach
+     the directory" need different fixes:
+       offline   — the browser itself reports no connection
+       degraded  — internet is fine, no mirror answered (outage, rate limit,
+                   DNS filtering, a privacy extension blocking the origin)
+       ok        — the directory answered
+     Only `offline` is ever allowed to say "showing what we saved".
+  -------------------------------------------------------------------------- */
+  function browserOffline() {
+    return typeof navigator !== "undefined" && navigator.onLine === false;
+  }
+  /** "Playable only" is decided by what this element can actually decode. */
+  function onlyPlayable() {
+    if (state.onlyPlayable === null) state.onlyPlayable = !supportProfile().hlsOk;
+    return state.onlyPlayable;
+  }
+  function clearNetRetry() {
+    if (state.netTimer) {
+      clearTimeout(state.netTimer);
+      state.netTimer = 0;
     }
   }
-  function markOffline() {
-    if (!state.offline) {
-      state.offline = true;
-      setNetBar(true);
+  function markOnline() {
+    const wasDown = state.offline || (state.net.kind && state.net.kind !== "ok");
+    state.offline = false;
+    if (state.net.kind !== "ok" || state.net.attempts) {
+      // `reason` survives on purpose: the list can still explain *why* it is
+      // empty ("too many requests") after the connectivity bar steps aside.
+      const reason = state.net.reason || state.net.i18n || "";
+      state.net = { kind: "ok", i18n: "", reason: reason, at: Date.now(), retryAt: 0, attempts: 0, status: 0 };
     }
+    clearNetRetry();
+    if (wasDown) setNetBar(false, true);
+  }
+  function markOffline() {
+    if (!state.offline) state.offline = true;
+    state.net = {
+      kind: "offline",
+      i18n: "offlineBody",
+      reason: "offlineBody",
+      at: Date.now(),
+      retryAt: 0,
+      attempts: 0,
+      status: 0,
+    };
+    clearNetRetry();
+    setNetBar(true);
+  }
+  /**
+   * @param {{status?:number,aborted?:boolean,empty?:boolean,online?:boolean}} info
+   */
+  function markNetFailure(info) {
+    const details = info || {};
+    const cls = classifyFailure({
+      status: details.status,
+      aborted: details.aborted,
+      empty: details.empty,
+      online: typeof details.online === "boolean" ? details.online : !browserOffline(),
+    });
+    const wait = cls.retryMs ? backoff(state.net.attempts || 0, cls.retryMs, 120000) : 0;
+    state.net = {
+      kind: cls.kind,
+      i18n: cls.i18n,
+      reason: cls.i18n,
+      at: Date.now(),
+      retryAt: wait ? Date.now() + wait : 0,
+      attempts: (state.net.attempts || 0) + 1,
+      status: Number(details.status) || 0,
+    };
+    if (cls.kind === "offline") state.offline = true;
+    setNetBar(true);
+    if (!cls.hard && wait) scheduleNetRetry(wait);
+  }
+  function scheduleNetRetry(waitMs) {
+    clearNetRetry();
+    if ((state.net.attempts || 0) > 10) return;
+    state.netTimer = setTimeout(function () {
+      state.netTimer = 0;
+      if (browserOffline()) return;
+      if (document.hidden) return;
+      retryLoad({ auto: true });
+    }, Math.max(4000, waitMs));
+  }
+  /** Human copy for the status bar; `null` means "hide it". */
+  function netCopy() {
+    if (browserOffline()) {
+      return { tone: "offline", text: t("offlineBody"), sub: savedNote(), retry: true };
+    }
+    const kind = state.net.kind;
+    if (!kind || kind === "ok") return null;
+    const wait = Math.max(0, Math.ceil(((state.net.retryAt || 0) - Date.now()) / 1000));
+    const auto =
+      state.net.attempts > 0 && state.net.attempts <= 10 && wait > 2
+        ? " · " + t("retryIn")(wait)
+        : "";
+    return { tone: kind, text: t(state.net.i18n || "netUnreachable") + auto, sub: savedNote(), retry: true };
+  }
+  function savedNote() {
+    if (!state.stations.length) return "";
+    if (!state.net.at) return "";
+    return state.cacheAt ? t("savedShown")(formatNumber(state.stations.length, state.lang === "fa" ? "fa-IR" : "en-US")) : "";
   }
 
   async function getJSON(path, opts) {
@@ -460,43 +625,111 @@
       const hit = apiCache.get(path);
       if (hit && Date.now() - hit.at < ttl) return hit.data;
     }
+    if (browserOffline()) {
+      markNetFailure({ online: false });
+      throw new Error("offline");
+    }
+    const hosts = mirrorPlan(HOSTS, state.mirrors, Date.now(), state.host);
+    const budget = Number(options.budget) || HOST_BUDGET;
+    const started = Date.now();
     let last = null;
+    let lastInfo = null;
     const tried = new Set();
-    for (const h of [state.host, ...HOSTS]) {
+    for (const h of hosts) {
       if (!h || tried.has(h)) continue;
       tried.add(h);
+      // Never let a whole round of mirrors stall the first paint: when the
+      // remaining budget is gone we stop and show what we have.
+      if (Date.now() - started > budget) break;
+      const left = Math.max(1200, budget - (Date.now() - started));
+      const timeout = Math.max(1500, Math.min(options.timeout || HOST_TIMEOUT, left));
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
       let onAbort = null;
+      let timedOut = false;
       if (ctrl && options.signal) {
         if (options.signal.aborted) break;
         onAbort = function () { ctrl.abort(); };
         options.signal.addEventListener("abort", onAbort, { once: true });
       }
-      const timer = ctrl
-        ? setTimeout(function () { ctrl.abort(); }, options.timeout || 9000)
-        : null;
+      const timer = ctrl ? setTimeout(function () { timedOut = true; ctrl.abort(); }, timeout) : null;
       try {
         const init = ctrl ? { signal: ctrl.signal, credentials: "omit" } : { credentials: "omit" };
         const res = await fetch(h + path, init);
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        if (!res.ok) {
+          const err = new Error("HTTP " + res.status);
+          err.freq = { status: res.status, retryAfter: retryAfter(res) };
+          throw err;
+        }
         const data = await res.json();
         state.host = h;
-        if (cacheable) {
+        state.mirrors = noteMirror(state.mirrors, h, true, Date.now());
+        saveMirrors();
+        markOnline();
+        // Never cache an empty answer: it would be replayed for the whole TTL
+        // and turn a transient outage into a permanent "no stations found".
+        if (cacheable && !isEmptyResult(data)) {
           apiCache.set(path, { data: data, at: Date.now() });
           trimApiCache();
         }
-        markOnline();
         return data;
       } catch (e) {
         if (options.signal && options.signal.aborted) throw e;
         last = e;
+        lastInfo = (e && e.freq) || { aborted: timedOut || isAbort(e), online: !browserOffline() };
+        state.mirrors = noteMirror(state.mirrors, h, false, Date.now());
+        saveMirrors();
       } finally {
         if (timer) clearTimeout(timer);
         if (onAbort && options.signal) options.signal.removeEventListener("abort", onAbort);
       }
     }
-    markOffline();
+    markNetFailure(lastInfo || { online: browserOffline() });
     throw last || new Error("radio api down");
+  }
+
+  function isEmptyResult(data) {
+    if (Array.isArray(data)) return data.length === 0;
+    if (data && typeof data === "object") return Object.keys(data).length === 0;
+    return !data;
+  }
+  function retryAfter(res) {
+    try {
+      if (!res || !res.headers || typeof res.headers.get !== "function") return 0;
+      return Number(res.headers.get("retry-after")) || 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+  // Coalesce the burst of writes a failing mirror sweep produces.
+  let mirrorsDirty = false;
+  function saveMirrors() {
+    if (mirrorsDirty) return;
+    mirrorsDirty = true;
+    setTimeout(function () {
+      mirrorsDirty = false;
+      lsSet("freq-mirrors", JSON.stringify(state.mirrors));
+    }, 600);
+  }
+  function httpStatusOf(err) {
+    const match = /HTTP (\d{3})/.exec(String((err && err.message) || ""));
+    return match ? Number(match[1]) : 0;
+  }
+  /** Alias table for the smart search: "آلمان" is a country, not a station. */
+  let searchDictCache = null;
+  function searchDict() {
+    if (searchDictCache) return searchDictCache;
+    searchDictCache = {
+      countries: COUNTRIES.map(function (c) {
+        return { cc: c.cc, fa: c.fa, en: c.en };
+      }),
+      langs: LANGS.map(function (l) {
+        return { id: l.id, fa: l.fa, en: l.en };
+      }),
+      tags: GENRES.map(function (g) {
+        return { tag: g.tag, fa: g.fa, en: g.en };
+      }),
+    };
+    return searchDictCache;
   }
 
   function saveFavs() {
@@ -601,11 +834,13 @@
     const query = buildStationsQuery(
       {
         cc: state.cc,
+        city: state.city,
         tag: state.tag,
         language: state.langFilter,
         q: state.q.trim(),
         wave: state.wave,
         hd: state.hd,
+        hls: onlyPlayable() ? "skip" : "",
         order: state.sort,
         offset: state.offset,
         limit: PAGE,
@@ -615,9 +850,18 @@
     try {
       const signal = state.listAbort ? state.listAbort.signal : undefined;
       let data = await getJSON("/json/stations/search?" + query, { ttl: 45 * 1000, signal: signal });
-      if (state.q.trim() && (!data || data.length < 12) && !append) {
+      data = data || [];
+      // An unfiltered browse that answers with nothing is an outage, not a
+      // fact about the world: say so, and let the retry/snapshot path run.
+      if (!append && !data.length && !state.q.trim() && !state.tag && !state.cc && !state.city && !state.langFilter) {
+        const err = new Error("empty directory");
+        err.freq = { empty: true, online: !browserOffline() };
+        throw err;
+      }
+      if (state.q.trim() && data.length < 12 && !append) {
+        const smart = smartFilters(state.q.trim(), searchDict());
         const extra = await getJSON(
-          "/json/stations/search?" + buildTagFallbackQuery(
+          "/json/stations/search?" + buildAltSearchQuery(
             {
               cc: state.cc,
               language: state.langFilter,
@@ -628,12 +872,13 @@
               offset: 0,
               limit: PAGE,
             },
-            PAGE
+            PAGE,
+            smart
           ),
           { ttl: 45 * 1000, signal: signal }
         ).catch(function () { return []; });
-        const seen = new Set((data || []).map(function (s) { return s.stationuuid; }));
-        data = (data || []).concat(
+        const seen = new Set(data.map(function (s) { return s.stationuuid; }));
+        data = data.concat(
           (extra || []).filter(function (s) { return !seen.has(s.stationuuid); })
         );
       }
@@ -648,6 +893,10 @@
       state.hasMore = (data || []).length >= PAGE;
       state.offset += PAGE;
       saveStationCache();
+      // Clear the loading flags *before* rendering: a zero-result page used to
+      // paint skeletons and then never re-paint, which read as "nothing loads".
+      state.loadingFirst = false;
+      state.loadingMore = false;
       renderCountries();
       renderGenres();
       renderLangs();
@@ -655,6 +904,11 @@
     } catch (e) {
       if (isAbort(e) || fetchGen !== state.fetchGen) return;
       state.error = true;
+      if (!(e && e.freq)) {
+        markNetFailure({ status: httpStatusOf(e), online: !browserOffline(), aborted: isAbort(e) });
+      } else {
+        markNetFailure(e.freq);
+      }
       if (!state.stations.length) {
         const cached = readStationCache();
         if (cached.length) {
@@ -663,6 +917,8 @@
           state.cacheAt = Number(safeParse("freq-cache", {}).at) || 0;
         }
       }
+      state.loadingFirst = false;
+      state.loadingMore = false;
       renderCountries();
       renderGenres();
       renderList();
@@ -838,6 +1094,7 @@
     return !!(
       state.tag ||
       state.cc ||
+      state.city ||
       state.langFilter ||
       (state.q && state.q.trim()) ||
       state.band ||
@@ -868,6 +1125,7 @@
     state.mode = "browse";
     state.tag = "";
     state.cc = "";
+    state.city = "";
     state.langFilter = "";
     state.q = "";
     state.band = "";
@@ -977,6 +1235,7 @@
       !state.q.trim() &&
       !state.tag &&
       !state.cc &&
+      !state.city &&
       !state.langFilter
     );
   }
@@ -1006,12 +1265,15 @@
   function stateBlock(kind) {
     const active = hasActiveFilters();
     if (kind === "error") {
+      const why = t(state.net.i18n || state.net.reason || "loadErrorBody");
+      const saved = state.favs.length || state.recents.length;
       return `<div class="state">
-        <div class="state-ico" aria-hidden="true">📡</div>
-        <h3>${esc(t("loadError"))}</h3>
-        <p>${esc(t("loadErrorBody"))}</p>
+        <div class="state-ico" aria-hidden="true">${browserOffline() ? "📴" : "📡"}</div>
+        <h3>${esc(t(browserOffline() ? "offlineTitle" : "loadError"))}</h3>
+        <p>${esc(why)}</p>
         <div class="state-actions">
           <button type="button" class="ghost wide" data-act="retry">${esc(t("retry"))}</button>
+          ${saved ? `<button type="button" class="ghost wide" data-act="local">${esc(t("openSaved"))}</button>` : ""}
           <button type="button" class="ghost wide" data-act="filters">${esc(t("filters"))}</button>
         </div>
       </div>`;
@@ -1033,17 +1295,23 @@
     if (!el) return;
     const n = state.stations.length;
     const home = isHome();
+    // The tail flags belong in the key: without them a list that ends up empty
+    // keeps showing the skeleton it drew while loading — "stations never
+    // load" with a 200 OK in the network tab.
     const viewKey = [
       state.lang,
       state.mode,
       state.tag,
       state.cc,
+      state.city,
       state.langFilter,
       state.q,
       state.sort,
       home ? 1 : 0,
       state.folderId,
       state.forYouTag,
+      state.error ? 1 : 0,
+      state.loadingFirst || state.loadingMore ? 1 : 0,
     ].join("|");
     const full = viewKey !== state.renderKey || !$("cards");
     const keep = full ? 0 : el.scrollTop;
@@ -1053,7 +1321,7 @@
     if (countLine) {
       let lineText = typeof cfn === "function" ? cfn(n) : String(n);
       if (state.loadingMore && !n) lineText = t("loadingStations");
-      else if (state.error && n) lineText += " · " + t("offline");
+      else if (state.error && n) lineText += " · " + (browserOffline() ? t("offline") : t("savedOnly"));
       countLine.textContent = lineText;
     }
     el.setAttribute("aria-busy", state.loadingMore || state.loadingFirst ? "true" : "false");
@@ -1220,8 +1488,11 @@
   function renderPlayer() {
     const s = state.current;
     const player = $("player");
-    const stage = $("stage");
     if (!player) return;
+    /* The EQ readouts and the settings badge describe which path is live, so
+       they ride along with this render instead of drifting behind it. */
+    syncEqReadouts();
+    const stage = $("stage");
     player.setAttribute("data-player-style", state.playerStyle);
     if (stage) stage.setAttribute("data-player-style", state.playerStyle);
     const fav = !!(s && isFav(s.stationuuid));
@@ -1253,8 +1524,7 @@
       b.setAttribute("aria-label", toggleLabel);
     });
 
-    const audio = $("audio");
-    const vol = audio ? audio.volume : state.userVol;
+    const vol = state.userVol;
     setText("vol-n", String(Math.round(vol * 100)));
     const muteBtn = $("mute-btn");
     if (muteBtn) muteBtn.classList.toggle("muted", vol < 0.01);
@@ -1355,16 +1625,24 @@
       clearTimeout(state.watchdog);
       state.watchdog = 0;
     }
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = 0;
+    }
   }
 
   function onAudioStarted(gen) {
     if (gen && gen !== state.playGen) return;
+    if (state.useFx) afx.sound = true;
     state.ignoreErr = false;
     state.fails = 0;
+    state.reconnects = 0;
+    state.needsGesture = false;
     state.playing = true;
     state.failed = false;
     state.buffering = false;
     state.status = "";
+    if (state.current && state.current.stationuuid) markStreamResult(state.current.stationuuid, true);
     clearWatchdog();
     if (state.scanning) {
       state.scanning = false;
@@ -1380,8 +1658,459 @@
     setMediaSession(state.current);
   }
 
+  /* ------------------------------------------------- stream capability checks
+     A stream the element cannot even open should fail instantly with words,
+     not after a 15-second watchdog and an "قطع شد" shrug.
+  -------------------------------------------------------------------------- */
+  let supportCache = null;
+  function supportProfile() {
+    if (supportCache) return supportCache;
+    const audio = audioEl();
+    const can = function (type) {
+      if (!audio || typeof audio.canPlayType !== "function") return "";
+      try {
+        return String(audio.canPlayType(type) || "");
+      } catch (_) {
+        return "";
+      }
+    };
+    const yes = function (value) {
+      return value === "probably" || value === "maybe";
+    };
+    const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+    const apple = /(^|[^a-z])(iphone|ipad|ipod|macintosh)/i.test(" " + ua.toLowerCase()) &&
+      !/chrome|chromium|edg|android|fxios|opr/i.test(ua);
+    supportCache = {
+      pageSecure: typeof location !== "undefined" && location.protocol === "https:",
+      hlsOk:
+        yes(can("application/vnd.apple.mpegurl")) ||
+        yes(can("application/x-mpegURL")) ||
+        yes(can("application/vnd.apple.mpegurl;codecs=mp4a.40.2")) ||
+        apple,
+      dashOk: yes(can("application/dash+xml")),
+    };
+    return supportCache;
+  }
+  function streamCandidate(station) {
+    const support = supportProfile();
+    const primary = station.url_resolved || station.url;
+    const fmt = streamFormat(primary);
+    const verdict = canPlayStream(fmt, support);
+    if (verdict.playable) return { url: primary, playable: true, fmt: fmt, reason: "" };
+    const alt = station.url && station.url !== primary ? streamFormat(station.url) : null;
+    if (alt && alt.ok && canPlayStream(alt, support).playable) {
+      return { url: alt.url, playable: true, fmt: alt, reason: "" };
+    }
+    if (verdict.reason === "insecure") {
+      const up = upgradeToHttps(primary, "stream");
+      if (up) {
+        const upFmt = streamFormat(up);
+        if (upFmt.ok && canPlayStream(upFmt, support).playable) {
+          return { url: up, playable: true, fmt: upFmt, reason: "", upgraded: true };
+        }
+      }
+    }
+    return { url: primary, playable: false, fmt: fmt, reason: verdict.reason };
+  }
+  function playBlockedCopy(reason) {
+    if (reason === "hls") return t("whyHls");
+    if (reason === "dash") return t("whyDash");
+    if (reason === "insecure") return t("whyInsecure");
+    return t("whyFormat");
+  }
+  /** Local stream health: quarantine stations that just died on us. */
+  function markStreamResult(uuid, ok) {
+    if (!uuid) return;
+    state.streamHealth = noteStream(state.streamHealth, uuid, ok, Date.now());
+    lsSet("freq-stream", JSON.stringify(state.streamHealth));
+  }
+  function isQuarantined(uuid) {
+    return streamCooling(state.streamHealth, uuid, Date.now());
+  }
+  /** Re-arm a one-shot resume for browsers that refused the first autoplay. */
+  function armGestureResume() {
+    if (armGestureResume._on) return;
+    const resume = function () {
+      document.removeEventListener("pointerdown", resume, true);
+      document.removeEventListener("keydown", resume, true);
+      armGestureResume._on = null;
+      const audio = audioEl();
+      if (!audio || !state.current || state.playing) return;
+      state.needsGesture = false;
+      const go = audio.play();
+      if (go && go.then) {
+        go.then(function () { onAudioStarted(state.playGen); }).catch(function () {
+          state.status = t("tapPlay");
+          renderPlayer();
+        });
+      }
+    };
+    armGestureResume._on = resume;
+    document.addEventListener("pointerdown", resume, true);
+    document.addEventListener("keydown", resume, true);
+  }
+
+  /* ------------------------------------------------------------- fx graph
+     Why two <audio> elements: a MediaElementAudioSourceNode can only tap a
+     media element whose resource was fetched with CORS. Wire a cross-origin
+     stream that sends no `Access-Control-Allow-Origin` into an AudioContext
+     and the browser does not merely skip the EQ — it mutes the output. So the
+     plain element stays graph-free (works with every station) and `#audio-fx`
+     is only ever fetched in CORS mode; if that load fails we remember the
+     station and keep playing it on the plain element.
+  -------------------------------------------------------------------------- */
+  function plainElement() { return $("audio"); }
+  function fxElement() { return $("audio-fx"); }
+  function audioEl() { return state.useFx ? fxElement() : plainElement(); }
+  const afx = {
+    ctx: null, src: null, bands: [], comp: null, out: null,
+    ready: false, broken: false,
+    /* true once the graphed element actually started producing sound; before
+       that, any failure is treated as "no CORS headers" rather than "dead station" */
+    sound: false,
+    armsToasted: false,
+  };
+
+  function eqActive() {
+    return (state.eq || []).some(function (v) { return Math.abs(Number(v) || 0) > 0.05; });
+  }
+  function fxDesired() {
+    return eqActive() || !!state.normalize;
+  }
+  function audioGraphSupported() {
+    return !!(window.AudioContext || window.webkitAudioContext);
+  }
+  function corsBlocked(uuid) {
+    return !!uuid && state.noCors.indexOf(uuid) >= 0;
+  }
+  function rememberNoCors(uuid) {
+    if (!uuid || corsBlocked(uuid)) return;
+    state.noCors = [uuid].concat(state.noCors).slice(0, 200);
+    lsSet("freq-nocors", JSON.stringify(state.noCors));
+  }
+  function resetNoCors() {
+    state.noCors = [];
+    lsSet("freq-nocors", "[]");
+    toast(t("fxCorsReset"));
+    renderEq();
+  }
+  function fxWanted(station) {
+    return !!(station && fxDesired() && audioGraphSupported() && !corsBlocked(station.stationuuid));
+  }
+  function trimFor(station) {
+    if (!station || !state.trims) return 1;
+    const v = Number(state.trims[station.stationuuid]);
+    return Number.isFinite(v) ? Math.min(1.5, Math.max(0.4, v)) : 1;
+  }
+  /**
+   * The fx element is the only one fetched in CORS mode, so a station that
+   * sends no `Access-Control-Allow-Origin` fails here (load error or a
+   * rejected play()) while the exact same URL is perfectly playable on the
+   * plain element. Called from both failure paths, before either would mark the
+   * station broken: remember the stream, drop the effects and replay it.
+   */
+  function fxBlockedNow() {
+    if (!state.useFx || afx.sound || !state.current) return false;
+    if (corsBlocked(state.current.stationuuid)) return false;
+    const station = state.current;
+    rememberNoCors(station.stationuuid);
+    state.useFx = false;
+    afx.sound = false;
+    toast(t("fxUnavailable"), { duration: 3800 });
+    play(station);
+    return true;
+  }
+  function fxStatus() {
+    if (!fxDesired()) return "idle";
+    if (!audioGraphSupported()) return "unsupported";
+    if (state.useFx && afx.ready) return "on";
+    if (state.current && corsBlocked(state.current.stationuuid)) return "blocked";
+    return "waiting";
+  }
+  function ensureFxGraph() {
+    if (afx.ready) return afx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const el = fxElement();
+    if (!Ctx || !el) {
+      afx.broken = true;
+      return null;
+    }
+    try {
+      const ctx = new Ctx();
+      const src = ctx.createMediaElementSource(el);
+      const bands = EQ_BANDS.map(function (band) {
+        const node = ctx.createBiquadFilter();
+        node.type = band.type;
+        node.frequency.value = band.hz;
+        if (band.type === "peaking") node.Q.value = 0.9;
+        node.gain.value = 0;
+        return node;
+      });
+      let tail = src;
+      bands.forEach(function (node) {
+        tail.connect(node);
+        tail = node;
+      });
+      // The compressor is always in the chain and neutralised when off, so
+      // toggling normalisation never has to re-patch a live graph.
+      const comp = ctx.createDynamicsCompressor();
+      tail.connect(comp);
+      tail = comp;
+      const out = ctx.createGain();
+      tail.connect(out);
+      out.connect(ctx.destination);
+      afx.ctx = ctx;
+      afx.src = src;
+      afx.bands = bands;
+      afx.comp = comp;
+      afx.out = out;
+      afx.ready = true;
+      afx.broken = false;
+      applyEq();
+    } catch (_) {
+      afx.broken = true;
+      return null;
+    }
+    return afx;
+  }
+  function applyEq() {
+    if (!afx.ready) return;
+    const gains = Core.sanitizeEq(state.eq);
+    afx.bands.forEach(function (node, i) {
+      try {
+        node.gain.setTargetAtTime(gains[i] || 0, afx.ctx.currentTime, 0.02);
+      } catch (_) {
+        node.gain.value = gains[i] || 0;
+      }
+    });
+    const comp = afx.comp;
+    if (comp) {
+      const set = state.normalize ? compressorSettings(state.normStrength) : null;
+      const values = set || { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.1 };
+      /* Ramped, not jumped: these params move while audio is live, and an
+         instant change on the makeup gain is audible as a click. */
+      const put = function (param, v) {
+        try {
+          param.setTargetAtTime(v, afx.ctx.currentTime, 0.03);
+        } catch (_) {
+          try {
+            param.value = v;
+          } catch (__) {}
+        }
+      };
+      put(comp.threshold, values.threshold);
+      put(comp.knee, values.knee);
+      put(comp.ratio, values.ratio);
+      put(comp.attack, values.attack);
+      put(comp.release, values.release);
+      if (afx.out) put(afx.out.gain, set ? set.makeup : 1);
+    }
+  }
+  function resumeFx() {
+    if (!afx.ready || !afx.ctx || typeof afx.ctx.resume !== "function") return;
+    if (afx.ctx.state === "suspended") {
+      try { afx.ctx.resume(); } catch (_) {}
+    }
+  }
+  /** EQ/normalisation changes take effect live; off + flat tears the graph down to neutral. */
+  function setEq(gains, opts) {
+    state.eq = Core.sanitizeEq(gains);
+    lsSet("freq-eq", JSON.stringify(state.eq));
+    if (state.useFx) ensureFxGraph();
+    applyEq();
+    syncEqReadouts();
+    if (!(opts || {}).silent) renderEqPresets();
+    announceArmedFx();
+  }
+  /**
+   * Effects are attached at play() time (that is when the CORS-mode fetch is
+   * chosen), so turning them on mid-stream is a promise for the next station.
+   * Say so once, not on every slider tick.
+   */
+  function announceArmedFx() {
+    if (!fxDesired() || state.useFx || !state.playing || afx.armsToasted) return;
+    afx.armsToasted = true;
+    toast(t(fxUsableNow() ? "fxArmsOnPlay" : "fxUnavailable"), { duration: 3200 });
+  }
+  function applyEqPreset(name) {
+    setEq(eqPreset(name));
+    toast(t("eqPresetApplied") + " · " + name);
+  }
+  function toggleNormalize() {
+    if (state.normalize) afx.armsToasted = false;
+    state.normalize = !state.normalize;
+    lsSet("freq-normalize", state.normalize ? "1" : "0");
+    if (state.normalize) {
+      ensureFxGraph();
+      resumeFx();
+    }
+    applyEq();
+    renderEq();
+    renderPlayer();
+    announceArmedFx();
+  }
+  function fxUsableNow() {
+    return audioGraphSupported() && !(state.current && corsBlocked(state.current.stationuuid));
+  }
+  function eqBandLabel(band) {
+    return state.lang === "fa" ? band.fa : band.en;
+  }
+  function fmtHz(hz) {
+    return hz >= 1000 ? (hz / 1000).toFixed(hz % 1000 ? 1 : 0) + "k" : String(hz);
+  }
+  function renderEq() {
+    const grid = $("eq-grid");
+    if (!grid) return;
+    const gains = Core.sanitizeEq(state.eq);
+    grid.innerHTML = EQ_BANDS.map(function (band, i) {
+      const value = gains[i];
+      const hz = fmtHz(band.hz);
+      return `<div class="eq-band">
+        <label for="eq-b-${band.id}">
+          <span class="eq-band-name">${esc(eqBandLabel(band))}</span>
+          <span class="eq-band-hz" dir="ltr">${esc(hz)}</span>
+        </label>
+        <input id="eq-b-${band.id}" type="range" min="-12" max="12" step="0.5"
+          value="${value}" data-eqband="${i}" dir="ltr"
+          aria-valuetext="${value > 0 ? "+" : ""}${value} dB" />
+        <output class="eq-band-n" dir="ltr">${value > 0 ? "+" : ""}${value}</output>
+      </div>`;
+    }).join("");
+    renderEqPresets();
+    syncEqReadouts();
+  }
+  function renderEqPresets() {
+    const box = $("eq-presets");
+    if (!box) return;
+    const names = eqPresetNames();
+    const current = Core.sanitizeEq(state.eq);
+    box.innerHTML = names
+      .map(function (name) {
+        const same = Core.sanitizeEq(eqPreset(name)).every(function (v, i) { return v === current[i]; });
+        return `<button type="button" class="${same ? "on" : ""}" data-eqpreset="${esc(name)}"
+          aria-pressed="${same ? "true" : "false"}" dir="ltr">${esc(name)}</button>`;
+      })
+      .join("");
+  }
+  function syncEqReadouts() {
+    const gains = Core.sanitizeEq(state.eq);
+    bySel("[data-eqband]").forEach(function (el) {
+      const i = Number(el.dataset.eqband);
+      const v = gains[i] || 0;
+      if (document.activeElement !== el) el.value = String(v);
+      el.setAttribute("aria-valuetext", (v > 0 ? "+" : "") + v + " dB");
+      const out = el.parentElement ? el.parentElement.querySelector(".eq-band-n") : null;
+      if (out) out.textContent = (v > 0 ? "+" : "") + v;
+    });
+    const norm = $("eq-normalize");
+    if (norm) {
+      norm.setAttribute("aria-pressed", state.normalize ? "true" : "false");
+      norm.classList.toggle("on", !!state.normalize);
+    }
+    const strength = $("eq-strength");
+    if (strength) {
+      strength.value = String(Math.round(state.normStrength * 100));
+      strength.disabled = !state.normalize;
+    }
+    setText("eq-strength-n", Math.round(state.normStrength * 100) + "%");
+    const master = $("eq-master");
+    if (master) master.value = String(Core.trimToSlider(state.master));
+    setText("eq-master-n", Math.round(state.master * 100) + "%");
+    /* The per-station trim stays visible while idle (with an explanation) rather
+       than vanishing, so the dialog does not reflow under the reader. */
+    const trim = $("eq-trim");
+    if (trim) {
+      const has = !!state.current;
+      trim.disabled = !has;
+      trim.setAttribute("aria-disabled", has ? "false" : "true");
+      trim.value = String(Core.trimToSlider(trimFor(state.current)));
+      setText("eq-trim-n", has ? Math.round(trimFor(state.current) * 100) + "%" : "—");
+      setText("eq-trim-name", has ? state.current.name || "" : t("noStation"));
+    }
+    const status = $("eq-status");
+    if (status) {
+      const code = fxStatus();
+      const key =
+        code === "on" ? "fxOn" : code === "blocked" ? "fxBlocked" : code === "unsupported" ? "fxUnsupported" : code === "waiting" ? "fxArmsOnPlay" : "fxIdle";
+      status.textContent = t(key);
+      status.dataset.state = code;
+    }
+    const clear = $("eq-cors");
+    if (clear) {
+      clear.hidden = !state.noCors.length;
+      setText("eq-cors-n", String(state.noCors.length));
+    }
+    const badge = $("eq-current");
+    if (badge) {
+      const on = fxDesired();
+      badge.textContent = on
+        ? (fxStatus() === "on" ? t("fxShortOn") : t("fxShortPending"))
+        : t("fxShortOff");
+    }
+  }
+  function toggleEq() {
+    const el = $("eq");
+    if (el && !el.hidden) {
+      closeEq();
+      return;
+    }
+    closeSettings();
+    closeFilters();
+    openEq();
+  }
+  function openEq() {
+    const el = $("eq");
+    if (!el) return;
+    if (el.hidden) pushLayer("eq");
+    el.hidden = false;
+    renderEq();
+    const b = $("eq-btn");
+    if (b) {
+      b.classList.add("on");
+      b.setAttribute("aria-expanded", "true");
+    }
+  }
+  function closeEq(fromPop) {
+    const el = $("eq");
+    const was = el && !el.hidden;
+    if (el) el.hidden = true;
+    const b = $("eq-btn");
+    if (b) {
+      b.classList.remove("on");
+      b.setAttribute("aria-expanded", "false");
+    }
+    if (was) dropLayer("eq", fromPop);
+  }
+
+  function tryReconnect() {
+    const audio = audioEl();
+    if (!audio || !state.current || browserOffline()) return false;
+    if ((state.reconnects || 0) >= 3) return false;
+    state.reconnects = (state.reconnects || 0) + 1;
+    state.buffering = true;
+    state.status = t("reconnecting");
+    renderPlayer();
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = setTimeout(function () {
+      state.reconnectTimer = 0;
+      if (!state.current) return;
+      const gen = state.playGen;
+      try {
+        audio.load();
+      } catch (_) {}
+      const go = audio.play();
+      if (go && go.then) {
+        go.then(function () { onAudioStarted(gen); }).catch(function () {
+          if (gen !== state.playGen) return;
+          if (!tryFallback(gen)) failSkip();
+        });
+      } else onAudioStarted(gen);
+    }, backoff(state.reconnects - 1, 700, 6000));
+    return true;
+  }
+
   function tryFallback(gen) {
-    const audio = $("audio");
+    const audio = audioEl();
     const s = state.current;
     if (!audio || !s) return false;
     const primary = s.url_resolved || s.url;
@@ -1406,8 +2135,6 @@
   function play(station) {
     const s = normalizeStation(station) || (station && station.url_resolved ? station : null);
     if (!s) return;
-    const audio = $("audio");
-    if (!audio) return;
     clearWatchdog();
     state.playGen = (state.playGen || 0) + 1;
     const gen = state.playGen;
@@ -1418,19 +2145,79 @@
     state.failed = false;
     state.buffering = true;
     state.retries = 0;
-    state.listenMs = 0;
-    state.listenTick = 0;
+    state.reconnects = 0;
+    state.needsGesture = false;
     remember(s);
     pushRecent(s);
     bumpStats(s);
-    audio.pause();
+    renderPlayer();
+    markCurrent();
+    /* Format gate: skip instantly (and quietly) when this browser cannot
+       decode the stream at all, instead of burning the watchdog on it. */
+    const cand = streamCandidate(s);
+    if (!cand.playable) {
+      state.ignoreErr = false;
+      state.buffering = false;
+      state.playing = false;
+      state.failed = true;
+      state.status = playBlockedCopy(cand.reason);
+      state.audioUrl = "";
+      pauseAllAudio();
+      [plainElement(), fxElement()].forEach(function (el) {
+        if (!el) return;
+        try {
+          el.removeAttribute("src");
+          el.load();
+        } catch (_) {}
+      });
+      markStreamResult(s.stationuuid, false);
+      renderPlayer();
+      setMediaSession(null);
+      if (navigator.vibrate) {
+        try { navigator.vibrate(15); } catch (_) {}
+      }
+      toast(state.status, {
+        action: t("next"),
+        duration: 5200,
+        onAction: function () { playRel(1); },
+      });
+      if (state.scanning) playRel(1);
+      return;
+    }
+    if (cand.upgraded) toast(t("upgradedHttps"), { duration: 2600 });
+    /* Pick the element: the graph-backed one only when an effect is armed and
+       this station has not already proven it sends no CORS headers. */
+    state.useFx = fxWanted(s) && !!ensureFxGraph();
+    afx.sound = false;
+    if (state.useFx) afx.armsToasted = false;
+    const audio = audioEl();
+    if (!audio) {
+      state.useFx = false;
+      return;
+    }
+    pauseAllAudio();
+    /* Release the element we are leaving: a stream keeps its socket open while
+       the src attribute points at it, and idle bandwidth is scarce on radio. */
+    const idle = state.useFx ? plainElement() : fxElement();
+    if (idle && idle.getAttribute("src")) {
+      try {
+        idle.removeAttribute("src");
+        idle.load();
+      } catch (_) {}
+    }
+    if (state.useFx) {
+      resumeFx();
+      renderEq();
+    }
     try {
-      audio.src = s.url_resolved || s.url;
+      audio.src = cand.url;
+      audio.dataset.gen = String(gen);
       state.audioUrl = audio.src;
       audio.load();
     } catch (_) {
-      state.audioUrl = s.url_resolved || s.url;
+      state.audioUrl = cand.url;
     }
+    applyVolume();
     getJSON("/json/url/" + encodeURIComponent(s.stationuuid), { noCache: true }).catch(function () {});
     renderPlayer();
     markCurrent();
@@ -1440,14 +2227,22 @@
     const go = audio.play();
     const failed = function (err) {
       if (gen !== state.playGen) return;
-      if (err && err.name === "NotAllowedError") {
+      // Autoplay policy: the browser refused a play() that was not tied to a
+      // gesture. Keep the station loaded, show one clear CTA and resume on the
+      // next tap/keypress instead of silently doing nothing.
+      if (err && (err.name === "NotAllowedError" || /not allowed/i.test(String(err.message || "")))) {
         state.ignoreErr = false;
         state.playing = false;
         state.buffering = false;
+        state.failed = false;
+        state.needsGesture = true;
         state.status = t("tapPlay");
+        armGestureResume();
         renderPlayer();
+        toast(t("autoplayBlocked"), { duration: 3200 });
         return;
       }
+      if (fxBlockedNow()) return;
       if (tryFallback(gen)) return;
       failSkip();
     };
@@ -1470,7 +2265,15 @@
     state.failed = true;
     state.buffering = false;
     clockListen(false);
-    state.status = t("failed");
+    const audio = audioEl();
+    const info = mediaErrorInfo(audio && audio.error);
+    // A dropped connection while we were happily playing is usually our side:
+    // retry the same station first, then blame it.
+    if (state.current && info.retry && (state.reconnects || 0) < 3 && !browserOffline()) {
+      if (tryReconnect()) return;
+    }
+    if (state.current) markStreamResult(state.current.stationuuid, false);
+    state.status = browserOffline() ? t("errNetwork") : info.i18n ? t(info.i18n) : t("failed");
     renderPlayer();
     setMediaSession(state.current);
     if (state.scanning) return;
@@ -1486,12 +2289,26 @@
     const list = state.stations;
     if (!list.length) return;
     if (!state.current) {
-      play(list[0]);
+      play(nextPlayable(list, -1, dir) || list[0]);
       return;
     }
-    const i = list.findIndex(function (s) { return s.stationuuid === state.current.stationuuid; });
-    const n = (i < 0 ? 0 : i + dir + list.length) % list.length;
-    play(list[n]);
+    const start = list.findIndex(function (s) { return s.stationuuid === state.current.stationuuid; });
+    const next = nextPlayable(list, start, dir) || list[(start < 0 ? 0 : start + dir + list.length) % list.length];
+    if (next) play(next);
+  }
+  /** Next station that is neither quarantined after a failure nor unplayable. */
+  function nextPlayable(list, start, dir) {
+    if (!list || !list.length) return null;
+    const support = supportProfile();
+    for (let i = 1; i <= list.length; i += 1) {
+      const s = list[(((start < 0 ? 0 : start) + dir * i) % list.length + list.length) % list.length];
+      if (!s) continue;
+      if (isQuarantined(s.stationuuid)) continue;
+      const fmt = streamFormat(s.url_resolved || s.url);
+      if (!canPlayStream(fmt, support).playable) continue;
+      return s;
+    }
+    return null;
   }
 
   function playRandom() {
@@ -1512,7 +2329,7 @@
   }
 
   function toggle() {
-    const audio = $("audio");
+    const audio = audioEl();
     if (!audio) return;
     if (!state.current) {
       if (state.stations[0]) play(state.stations[0]);
@@ -1532,6 +2349,9 @@
       play(state.current);
       return;
     }
+    state.needsGesture = false;
+    state.failed = false;
+    state.reconnects = 0;
     state.buffering = true;
     state.status = t("connecting");
     renderPlayer();
@@ -1541,26 +2361,41 @@
       .catch(function () { failSkip(); });
   }
 
+  /** Push a user-space volume into both elements through master + station trim. */
+  function setElementVolume(userVolValue) {
+    const v = effectiveVolume(userVolValue, state.master, trimFor(state.current));
+    [plainElement(), fxElement()].forEach(function (el) {
+      if (el) el.volume = v;
+    });
+    return v;
+  }
+  function applyVolume() {
+    return setElementVolume(state.userVol);
+  }
+  function pauseAllAudio() {
+    [plainElement(), fxElement()].forEach(function (el) {
+      if (!el) return;
+      try {
+        el.pause();
+      } catch (_) {}
+    });
+  }
   function setVol(v, silent) {
     v = Math.min(1, Math.max(0, Number(v) || 0));
-    const audio = $("audio");
-    if (audio) audio.volume = v;
-    document.querySelectorAll("[data-vol]").forEach(function (el) {
+    state.userVol = v;
+    if (v > 0.01) state.prevVol = v;
+    if (!silent) lsSet("freq-vol", String(v));
+    bySel("[data-vol]").forEach(function (el) {
       el.value = String(v);
     });
-    if (v > 0.01) state.prevVol = v;
-    if (!silent) {
-      state.userVol = v;
-      lsSet("freq-vol", String(v));
-    }
+    applyVolume();
     setText("vol-n", String(Math.round(v * 100)));
     const muteBtn = $("mute-btn");
     if (muteBtn) muteBtn.classList.toggle("muted", v < 0.01);
+    syncEqReadouts();
   }
   function toggleMute() {
-    const audio = $("audio");
-    const cur = audio ? audio.volume : state.userVol;
-    if (cur < 0.01) setVol(state.prevVol || 0.85);
+    if (state.userVol < 0.01) setVol(state.prevVol || 0.85);
     else setVol(0);
   }
   function setSleep(m) {
@@ -1598,6 +2433,7 @@
     map: "#map",
     car: "#car",
     themes: "#themes .themes-card",
+    eq: "#eq .themes-card",
     wrap: "#wrap .themes-card",
     playerstyles: "#playerstyles .themes-card",
   };
@@ -1690,6 +2526,7 @@
     else if (id === "map") closeMap(true);
     else if (id === "car") closeCar(true);
     else if (id === "themes") closeThemes(true);
+    else if (id === "eq") closeEq(true);
     else if (id === "wrap") closeWrap(true);
     else if (id === "playerstyles") closePlayerStyles(true);
     else dropLayer(id, true);
@@ -2028,6 +2865,12 @@
         sort: state.sort,
         wave: state.wave,
         hd: state.hd,
+        onlyPlayable: onlyPlayable(),
+        eq: Core.sanitizeEq(state.eq),
+        normalize: !!state.normalize,
+        normStrength: state.normStrength,
+        master: state.master,
+        trims: Core.sanitizeTrims(state.trims),
       },
     };
     if (typeof URL === "undefined" || !URL.createObjectURL) return;
@@ -2093,6 +2936,27 @@
           if (data.settings.sort) state.sort = String(data.settings.sort);
           if (data.settings.wave) state.wave = String(data.settings.wave);
           if (typeof data.settings.hd === "boolean") state.hd = data.settings.hd;
+          if (typeof data.settings.onlyPlayable === "boolean") {
+            state.onlyPlayable = data.settings.onlyPlayable;
+            lsSet("freq-onlyplayable", data.settings.onlyPlayable ? "1" : "0");
+            syncOnlyPlayableBtn();
+          }
+          if (data.settings.eq || typeof data.settings.normalize === "boolean") {
+            state.eq = Core.sanitizeEq(data.settings.eq);
+            state.normalize = !!data.settings.normalize;
+            state.normStrength = Core.clamp(
+              Number(data.settings.normStrength) > 0 ? Number(data.settings.normStrength) : 0.55, 0, 1
+            );
+            state.master = Number(data.settings.master) > 0 ? Math.min(1.5, Number(data.settings.master)) : 1;
+            state.trims = Core.sanitizeTrims(data.settings.trims);
+            lsSet("freq-eq", JSON.stringify(state.eq));
+            lsSet("freq-normalize", state.normalize ? "1" : "0");
+            lsSet("freq-norm-strength", String(state.normStrength));
+            lsSet("freq-master", String(state.master));
+            lsSet("freq-trims", JSON.stringify(state.trims));
+            renderEq();
+            applyVolume();
+          }
           if (data.settings.lang === "fa" || data.settings.lang === "en") {
             state.lang = data.settings.lang;
             lsSet("freq-lang", state.lang);
@@ -2270,14 +3134,14 @@
     step();
   }
   function fadeVol(from, to, ms) {
-    const audio = $("audio");
+    const audio = audioEl();
     if (!audio) return;
     if (state.fadeIv) clearInterval(state.fadeIv);
-    audio.volume = from;
+    setElementVolume(from);
     const t0 = Date.now();
     state.fadeIv = setInterval(function () {
       const p = Math.min(1, (Date.now() - t0) / ms);
-      audio.volume = from + (to - from) * p;
+      setElementVolume(from + (to - from) * p);
       if (p >= 1) {
         clearInterval(state.fadeIv);
         state.fadeIv = 0;
@@ -2292,8 +3156,7 @@
       state.sleepMin = 0;
       renderSleep();
       syncDockSleep();
-      const audio = $("audio");
-      if (audio) audio.pause();
+      pauseAllAudio();
       state.playing = false;
       state.buffering = false;
       state.status = "";
@@ -2305,7 +3168,7 @@
     }
     if (left < 45000) {
       const v = (state.userVol || 0.85) * (left / 45000);
-      if ($("audio")) $("audio").volume = Math.max(0.02, v);
+      setElementVolume(Math.max(0.02, v));
     }
   }
   function snooze() {
@@ -2317,8 +3180,7 @@
     state.alarm.last = "";
     saveAlarm();
     syncAlarmUi();
-    const audio = $("audio");
-    if (audio) audio.pause();
+    pauseAllAudio();
     closeStand();
     toast(t("snooze"));
   }
@@ -3448,6 +4310,14 @@
       if (home) link.href = home;
       else link.removeAttribute("href");
     }
+    // City page: only offered when the station actually declares a state.
+    const cityBtn = $("sh-city");
+    if (cityBtn) {
+      const city = s.city || "";
+      cityBtn.hidden = !city;
+      cityBtn.textContent = city ? t("moreFromCity")(city) : "";
+      cityBtn.title = city || "";
+    }
     const play = $("sh-play");
     if (play) play.textContent = state.playing && sameStation(state.current, s) ? t("pause") : t("play");
   }
@@ -3495,18 +4365,153 @@
     renderDirectoryStats();
   }
 
-  function setNetBar(offline, back) {
+  /**
+   * The bar is an announcement, never a replacement for the app: it is a slim
+   * strip above the header, the list keeps its own content (cached stations,
+   * favourites, recents) and the retry stays one tap away.
+   * @param {boolean} show
+   * @param {boolean} back  short "we are back" flash after a recovery
+   */
+  function setNetBar(show, back) {
     const bar = $("offline");
     if (!bar) return;
-    bar.hidden = !offline;
-    bar.classList.toggle("is-back", !!back);
+    const copy = back ? null : netCopy();
+    if (back) {
+      bar.hidden = false;
+      bar.dataset.tone = "back";
+      bar.classList.add("is-back");
+      const text = $("offline-text");
+      if (text) text.textContent = t("onlineNow");
+      const sub = $("offline-sub");
+      if (sub) {
+        sub.textContent = t("reloaded");
+        sub.hidden = false;
+      }
+      const retry = $("offline-retry");
+      if (retry) retry.hidden = true;
+      clearTimeout(setNetBar._t);
+      setNetBar._t = setTimeout(function () {
+        bar.hidden = true;
+        bar.classList.remove("is-back");
+        delete bar.dataset.tone;
+      }, 4200);
+      return;
+    }
+    clearTimeout(setNetBar._t);
+    if (!show || !copy) {
+      bar.hidden = true;
+      bar.classList.remove("is-back");
+      delete bar.dataset.tone;
+      return;
+    }
+    bar.hidden = false;
+    bar.classList.remove("is-back");
+    bar.dataset.tone = copy.tone || "degraded";
     const text = $("offline-text");
-    if (text) text.textContent = offline ? t("offlineBody") : t("onlineNow");
+    if (text) text.textContent = copy.text;
+    const sub = $("offline-sub");
+    if (sub) {
+      sub.textContent = copy.sub || "";
+      sub.hidden = !copy.sub;
+    }
+    const retry = $("offline-retry");
+    if (retry) retry.hidden = !copy.retry;
   }
 
-  function retryLoad() {
+  /** "Only streams this browser can play" — keeps HLS-only stations out of the way. */
+  function toggleOnlyPlayable() {
+    state.onlyPlayable = !onlyPlayable();
+    lsSet("freq-onlyplayable", state.onlyPlayable ? "1" : "0");
+    apiCache.clear();
+    syncOnlyPlayableBtn();
+    loadStations().catch(function () {});
+    toast(state.onlyPlayable ? t("onlyPlayableOn") : t("onlyPlayableOff"));
+  }
+  function syncOnlyPlayableBtn() {
+    const on = onlyPlayable();
+    document.querySelectorAll("[data-act='playable']").forEach(function (b) {
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+  /** Hide controls this browser cannot back (no dead buttons on screen). */
+  function syncVoiceBtn() {
+    const btn = $("mic-btn");
+    if (!btn) return;
+    const supported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    btn.hidden = !supported;
+    if (!supported) {
+      btn.removeAttribute("data-act");
+      btn.setAttribute("title", t("noVoice"));
+      btn.setAttribute("aria-hidden", "true");
+      btn.tabIndex = -1;
+    } else {
+      btn.setAttribute("title", t("voice"));
+      btn.removeAttribute("aria-hidden");
+      btn.tabIndex = 0;
+    }
+  }
+  /** Show favourites/recents when the directory is unreachable. */
+  function showLocalLibrary() {
+    state.mode = state.favs.length ? "fav" : "recent";
     state.error = false;
-    state.offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    applyLocalMode();
+    syncUrl();
+    if (!state.stations.length) toast(t("nothingSaved"));
+  }
+  /**
+   * "این ایستگاه خراب است" — tells Radio Browser the stream is dead (their
+   * own health tracker, no backend of ours), quarantines it locally so the
+   * auto-skipper avoids it, and hides it with an undo.
+   */
+  function reportBroken(station) {
+    const s = normalizeStation(station);
+    if (!s) return;
+    markStreamResult(s.stationuuid, false);
+    getJSON("/json/url/" + encodeURIComponent(s.stationuuid) + "?broken=true", { noCache: true })
+      .then(function () { toast(t("brokenSent"), { duration: 2600 }); })
+      .catch(function () { toast(t("brokenLocal"), { duration: 3200 }); });
+    if (state.current && sameStation(state.current, s)) {
+      pauseAllAudio();
+      state.playing = false;
+      state.buffering = false;
+      state.failed = false;
+      state.status = "";
+      clockListen(false);
+    }
+    hideStation(s);
+    renderPlayer();
+  }
+  /** Refresh the countdown inside the status bar (called from the 1s tick). */
+  function tickNetBar() {
+    const bar = $("offline");
+    if (!bar || bar.hidden || bar.classList.contains("is-back")) return;
+    const copy = netCopy();
+    if (!copy) {
+      bar.hidden = true;
+      return;
+    }
+    const text = $("offline-text");
+    if (text && text.textContent !== copy.text) text.textContent = copy.text;
+    const sub = $("offline-sub");
+    if (sub) {
+      sub.textContent = copy.sub || "";
+      sub.hidden = !copy.sub;
+    }
+  }
+
+  function retryLoad(options) {
+    const opts = options || {};
+    state.error = false;
+    state.offline = browserOffline();
+    if (opts.auto) {
+      // A background retry must not keep escalating forever if it keeps failing.
+      if ((state.net.attempts || 0) > 10) return;
+    } else {
+      state.net.attempts = 0;
+      state.net.retryAt = 0;
+      apiCache.clear();
+    }
     const loader = $("loader");
     if (loader && loader.classList.contains("failed")) {
       loader.classList.remove("failed");
@@ -3553,6 +4558,10 @@
       state.langFilter = f.language;
       state.homeAll = true;
     }
+    if (f.city) {
+      state.city = f.city;
+      state.homeAll = true;
+    }
     if (f.q) {
       state.q = f.q;
       const field = $("q");
@@ -3576,6 +4585,7 @@
         mode: state.mode,
         cc: state.cc,
         tag: state.tag,
+        city: state.city,
         langFilter: state.langFilter,
         q: state.q,
         sort: state.sort,
@@ -3970,6 +4980,22 @@
     on("sh-share", function () { shareStation(state.sheet); });
     on("sh-copy", function () { copyStation(state.sheet); });
     on("sh-vote", function () { voteStation(state.sheet); });
+    on("sh-broken", function () { reportBroken(state.sheet); });
+    on("sh-city", function () {
+      const city = state.sheet && state.sheet.city;
+      if (!city) {
+        toast(t("empty"));
+        return;
+      }
+      state.mode = "browse";
+      state.city = city;
+      state.tag = "";
+      state.homeAll = true;
+      closeSheet();
+      renderGenres();
+      loadStations().catch(function () {});
+      syncUrl();
+    });
     on("sh-hide", function () { hideStation(state.sheet); });
     on("sh-similar", function () {
       const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0].trim();
@@ -4006,44 +5032,126 @@
     }
 
     /* Player controls --------------------------------------------------- */
-    const audio = $("audio");
-    if (audio) {
-      audio.addEventListener("playing", function () {
-        if (!state.current) return;
-        if (state.playing) return;
+    // Both media elements share one handler set, and only the element that
+    // owns the current playback may touch player state: the idle one fires
+    // pause/emptied events when we switch paths, and honouring those would
+    // stop the music.
+    function bindMedia(el, isFx) {
+      if (!el) return;
+      const mine = function () {
+        return !!state.useFx === isFx && Number(el.dataset.gen || -1) === state.playGen;
+      };
+      el.addEventListener("playing", function () {
+        if (!mine() || !state.current || state.playing) return;
         onAudioStarted(state.playGen);
       });
-      audio.addEventListener("pause", function () {
-        if (state.ignoreErr) return;
+      el.addEventListener("pause", function () {
+        if (!mine() || state.ignoreErr) return;
         state.playing = false;
         state.buffering = false;
         clockListen(false);
         renderPlayer();
         saveStats();
       });
-      audio.addEventListener("waiting", function () {
-        if (!state.current || state.status === t("failed")) return;
+      el.addEventListener("waiting", function () {
+        if (!mine() || !state.current || state.status === t("failed")) return;
         state.buffering = true;
         renderPlayer();
       });
-      audio.addEventListener("canplay", function () {
-        if (!state.buffering) return;
+      el.addEventListener("stalled", function () {
+        if (!mine() || !state.current || !state.playing) return;
+        state.buffering = true;
+        state.status = t("buffering");
+        renderPlayer();
+        if (browserOffline()) return;
+        const gen = state.playGen;
+        setTimeout(function () {
+          if (gen !== state.playGen || !state.playing) return;
+          if (el.readyState >= 2) return;
+          failSkip();
+        }, 9000);
+      });
+      el.addEventListener("canplay", function () {
+        if (!mine() || !state.buffering) return;
         state.buffering = false;
         renderPlayer();
       });
-      audio.addEventListener("error", function () {
-        if (state.ignoreErr || state.scanning) return;
+      el.addEventListener("error", function () {
+        if (!mine() || state.scanning) return;
+        /* On the fx element an error before any sound means "no CORS headers",
+           not "dead station": the plain element plays the very same URL fine. */
+        if (isFx && fxBlockedNow()) return;
         failSkip();
       });
-      audio.addEventListener("ended", function () {
-        if (state.scanning) return;
+      el.addEventListener("ended", function () {
+        if (!mine() || state.scanning) return;
         failSkip();
       });
-      audio.addEventListener("loadedmetadata", function () {
-        if (state.ignoreErr) return;
+      el.addEventListener("loadedmetadata", function () {
+        if (!mine() || state.ignoreErr) return;
         clearWatchdog();
       });
     }
+    bindMedia(plainElement(), false);
+    bindMedia(fxElement(), true);
+
+    /* EQ / volume sliders ------------------------------------------------ */
+    /* The band row is re-rendered whenever the dialog opens (labels are
+       translated), so the listeners live on the container, not on the inputs. */
+    const eqGrid = $("eq-grid");
+    if (eqGrid) {
+      const commit = function (target) {
+        const el = target.closest ? target.closest("[data-eqband]") : null;
+        if (!el) return;
+        const list = Core.sanitizeEq(state.eq);
+        list[Number(el.dataset.eqband)] = Core.clampDb(el.value);
+        setEq(list, { silent: true });
+      };
+      eqGrid.addEventListener("input", function (e) {
+        commit(e.target);
+      });
+      eqGrid.addEventListener("change", function (e) {
+        commit(e.target);
+        renderEqPresets();
+      });
+    }
+    const eqPresets = $("eq-presets");
+    if (eqPresets) {
+      eqPresets.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-eqpreset]");
+        if (btn) applyEqPreset(btn.dataset.eqpreset);
+      });
+    }
+    function bindRange(id, apply) {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener("input", apply);
+      el.addEventListener("change", function () {
+        apply();
+      });
+    }
+    bindRange("eq-master", function () {
+      state.master = Core.sliderToTrim($("eq-master").value);
+      lsSet("freq-master", String(state.master));
+      applyVolume();
+      syncEqReadouts();
+    });
+    bindRange("eq-trim", function () {
+      const s = state.current;
+      if (!s) return;
+      state.trims[s.stationuuid] = Core.sliderToTrim($("eq-trim").value);
+      lsSet("freq-trims", JSON.stringify(Core.sanitizeTrims(state.trims)));
+      applyVolume();
+      syncEqReadouts();
+    });
+    bindRange("eq-strength", function () {
+      const el = $("eq-strength");
+      state.normStrength = Math.min(1, Math.max(0, Number(el.value) / 100));
+      lsSet("freq-norm-strength", String(state.normStrength));
+      applyEq();
+      syncEqReadouts();
+    });
+
     document.querySelectorAll("[data-vol]").forEach(function (el) {
       el.addEventListener("input", function () { setVol(el.value); });
       el.addEventListener("change", function () { setVol(el.value); });
@@ -4201,6 +5309,14 @@
       } else if (act === "install") installApp();
       else if (act === "geo") enableGeo();
       else if (act === "retry") retryLoad();
+      else if (act === "local") showLocalLibrary();
+      else if (act === "playable") toggleOnlyPlayable();
+      else if (act === "eq") toggleEq();
+      else if (act === "normalize") toggleNormalize();
+      else if (act === "eqreset") {
+        setEq(Core.sanitizeEq([]));
+        toast(t("eqReset"));
+      } else if (act === "corsreset") resetNoCors();
       else if (act === "update") checkForUpdates();
       else if (act === "reset") {
         if (window.confirm(t("resetTitle") + "\n" + t("resetBody"))) resetAllData();
@@ -4272,6 +5388,7 @@
       else if (e.key === "m" || e.key === "M") toggleMap();
       else if (e.key === "v" || e.key === "V") toggleCar();
       else if (e.key === "t" || e.key === "T") { closeSettings(); toggleThemes(); }
+      else if (e.key === "e" || e.key === "E") toggleEq();
       else if (e.key === "y" || e.key === "Y") { closeSettings(); toggleWrap(); }
       else if (e.key >= "1" && e.key <= "6") {
         const i = Number(e.key) - 1;
@@ -4288,8 +5405,7 @@
         navigator.mediaSession.setActionHandler("nexttrack", function () { playRel(1); });
         navigator.mediaSession.setActionHandler("previoustrack", function () { playRel(-1); });
         navigator.mediaSession.setActionHandler("stop", function () {
-          const audio = $("audio");
-          if (audio) audio.pause();
+          pauseAllAudio();
         });
       } catch (_) {}
     }
@@ -4297,9 +5413,19 @@
     /* Network state ----------------------------------------------------- */
     addEventListener("online", function () {
       markOnline();
+      state.net.attempts = 0;
       retryLoad();
     });
     addEventListener("offline", function () { markOffline(); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) return;
+      // Returning to the tab is the cheapest moment to re-probe a mirror that
+      // failed while we were away — but only when the screen is actually empty.
+      if (!state.stations.length && !browserOffline() && state.net.kind && state.net.kind !== "ok") {
+        state.net.attempts = Math.min(state.net.attempts || 0, 8);
+        retryLoad({ auto: true });
+      }
+    });
 
     /* Persistence + clock ----------------------------------------------- */
     addEventListener("pagehide", function () { saveStats(true); });
@@ -4316,6 +5442,7 @@
       if (state.night) tickStand();
       updateSleepLeft();
       checkAlarm();
+      tickNetBar();
     }, 1000);
     setInterval(renderDirectoryStats, 60000);
   }
@@ -4337,7 +5464,10 @@
     el.classList.remove("off");
     el.classList.add("failed");
     el.removeAttribute("aria-hidden");
-    setText("load-sub", t("loadError"));
+    // Say *why* the list is empty. "You're offline" is only honest when the
+    // browser itself reports no connection.
+    const copy = netCopy();
+    setText("load-sub", copy ? copy.text : t("loadErrorBody"));
     const retry = $("load-retry");
     if (retry) retry.hidden = false;
   }
@@ -4366,7 +5496,11 @@
       renderDirectoryStats();
       renderSearchHints();
       syncGeoBtn();
-      if (state.offline) setNetBar(true);
+      syncOnlyPlayableBtn();
+      syncVoiceBtn();
+      renderEq();
+      applyVolume();
+      if (browserOffline()) markOffline(); else setNetBar(false);
       setVol(state.userVol, true);
       renderPlayer();
       tickClock();

@@ -1610,3 +1610,65 @@ html[data-player-style="terminal"] .player .play { border-radius: 12px; backgrou
   html[data-player-style="vinyl"] .stage.open.on-air #s-vinyl { animation: none !important; }
   .player-style-tile { transition: none !important; }
 }
+
+/* ==========================================================================
+   Equalizer & volume — six bands, a normalisation switch and per-station trim
+   ========================================================================== */
+.eq-card { max-width: 40rem; }
+.eq-status {
+  margin: 10px 0 2px; padding: 9px 12px; border-radius: 14px;
+  font-size: 12px; font-weight: 700; line-height: 1.5;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+}
+.eq-status[data-state="on"] {
+  border-color: rgba(var(--acc-rgb), 0.45);
+  background: rgba(var(--acc-rgb), 0.12); color: var(--text);
+}
+.eq-status[data-state="waiting"],
+.eq-status[data-state="blocked"] { border-color: rgba(251, 191, 36, 0.4); color: var(--warn); }
+.eq-status[data-state="unsupported"] { border-color: rgba(239, 68, 68, 0.35); }
+.eq-presets {
+  display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px;
+}
+.eq-presets button {
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  border-radius: 999px; padding: 7px 12px; min-height: 38px;
+  font: 600 12px/1 var(--mono); text-transform: lowercase; letter-spacing: 0.02em;
+}
+.eq-presets button.on { color: var(--ink); background: var(--acc); border-color: var(--acc); }
+.eq-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 10px; margin: 12px 0 4px;
+}
+.eq-band {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 16px; padding: 10px 8px 8px;
+  background: var(--panel);
+}
+.eq-band label { display: flex; gap: 6px; align-items: baseline; width: 100%; justify-content: center; }
+.eq-band-name { font-size: 12px; font-weight: 700; color: var(--text); }
+.eq-band-hz { font: 500 10px/1 var(--mono); color: var(--muted); }
+.eq-band input[type="range"] { width: 100%; accent-color: var(--acc); }
+.eq-band-n { font: 600 11px/1 var(--mono); color: var(--ice); }
+.eq-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 12px;
+}
+.eq-inline {
+  display: flex; align-items: center; gap: 8px; flex: 1 1 190px;
+  font-size: 12px; font-weight: 700; color: var(--muted);
+}
+.eq-inline input[type="range"] { flex: 1; min-width: 90px; accent-color: var(--acc); }
+.eq-inline input[type="range"]:disabled { opacity: 0.4; }
+.eq-inline output { font: 600 11px/1 var(--mono); color: var(--ice); min-width: 3.4em; text-align: end; }
+.eq-note { margin: 8px 0 0; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.eq-help { margin: 12px 0 0; font-size: 11px; line-height: 1.6; color: var(--muted); opacity: 0.8; }
+html[data-skin="light"] .eq-status[data-state="waiting"],
+html[data-skin="light"] .eq-status[data-state="blocked"] { color: #92400e; }
+@media (prefers-reduced-motion: reduce) {
+  .eq-band, .eq-presets button { transition: none; }
+}
+@media (max-width: 560px) {
+  .eq-grid { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
+  .eq-inline { flex: 1 1 100%; }
+}

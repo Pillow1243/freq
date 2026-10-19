@@ -62,7 +62,10 @@ const referenced = new Set();
 {
   const re = /\$\(\s*"([^"]+)"\s*\)/g;
   let m;
-  while ((m = re.exec(app))) referenced.add(m[1]);
+  while ((m = re.exec(app))) {
+    /* Only ids: a CSS selector must not be mistaken for a missing element. */
+    if (/^[A-Za-z][\w:.-]*$/.test(m[1])) referenced.add(m[1]);
+  }
 }
 const missingIds = [...referenced].filter((id) => !ids.has(id) && !dynamic.has(id));
 if (missingIds.length) fail("app.js references missing ids: " + missingIds.join(", "));

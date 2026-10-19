@@ -32,6 +32,9 @@ Thousands of stations, a world map, car mode, sleep timer, folders, 50 themes,
 - **Accessible.** Skip link, focus traps and focus restore for every dialog, ARIA state
   on toggles, live regions for playback and counts, reduced-motion and high-contrast modes.
 - **Bilingual.** Persian (RTL, Jalali date) and English (LTR), switchable at runtime.
+- **Audio that never goes silent.** Effects (EQ, normalisation) run on a second media
+  element that is the only one fetched with CORS; a stream that refuses CORS is remembered
+  and replayed on the plain element instead of being muted or marked broken.
 - **Private.** No accounts, no trackers, no cookies. Everything personal lives in
   `localStorage`; only Radio Browser and Open-Meteo see requests.
 
@@ -46,6 +49,7 @@ Thousands of stations, a world map, car mode, sleep timer, folders, 50 themes,
 | World map (click a dot to play) | Versioned JSON backup/export/import | Car mode, night clock, sleep timer |
 | Scan mode and auto-skip on dead streams | Listening statistics | Alarm, Media Session, keyboard shortcuts |
 | Stream fallback (`url_resolved` → `url`) | Copy link, native share, Telegram | Installable PWA + update prompt |
+| 6-band equalizer + loudness normalisation | Settings backup covers EQ and trims | `E` opens the EQ from anywhere |
 
 ### Keyboard shortcuts
 
@@ -113,7 +117,7 @@ and a small request log. Any static server works — there is no bundler.
 | --- | --- |
 | `npm run check` | IDs, missing assets, i18n parity & duplicates, dead `data-act`s, CSP hash, version lockstep, manifest, SW precache |
 | `npm run lint` | ESLint 9 flat config for browser + Node globals |
-| `npm test` | `node --test` — 58 unit + jsdom integration tests |
+| `npm test` | `node --test` — 76 unit + jsdom integration tests |
 | `npm run verify` | all of the above |
 | `npm run serve:py` | the original Python server |
 
@@ -122,7 +126,7 @@ and a small request log. Any static server works — there is no bundler.
 Push to `main`. GitHub Actions runs the quality gate and publishes a staged `_site/`
 folder to Pages. No environment variables or secrets are required.
 
-The service worker uses a versioned cache (`freq-v2.1.0`). Bump `CACHE_VERSION` in
+The service worker uses a versioned cache (`freq-v2.2.0`). Bump `CACHE_VERSION` in
 `sw.js` and the `?v=` query string on assets when changing the shell; the app offers a
 “Refresh” toast when a new worker is waiting.
 

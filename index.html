@@ -34,11 +34,11 @@
     <meta name="twitter:title" content="FREQ — Live radio of the world" />
     <meta name="twitter:description" content="۵۰ تم، ۱۱ پوستهٔ پلیر و هزاران ایستگاه رادیویی زندهٔ جهان." />
     <meta name="twitter:image" content="https://pillow1243.github.io/freq/assets/og.png" />
-    <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=34" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png?v=34" />
-    <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png?v=34" />
-    <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png?v=34" />
-    <link rel="manifest" href="./manifest.webmanifest?v=34" />
+    <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=35" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png?v=35" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png?v=35" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png?v=35" />
+    <link rel="manifest" href="./manifest.webmanifest?v=35" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="FREQ" />
@@ -53,7 +53,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=34" />
+    <link rel="stylesheet" href="./styles.css?v=35" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -96,7 +96,7 @@
 
     <header class="top">
       <button class="brand" id="about-btn" type="button">
-        <img src="./assets/icon-192.png?v=34" width="40" height="40" alt="FREQ" />
+        <img src="./assets/icon-192.png?v=35" width="40" height="40" alt="FREQ" />
         <span class="brand-txt">
           <span class="word" dir="ltr">FREQ</span>
           <span class="tag" data-i18n="tag">رادیوی زندهٔ جهان</span>
@@ -225,6 +225,18 @@
         </button>
         <button
           type="button"
+          class="set-item set-item-disclosure"
+          data-act="eq"
+          id="eq-btn"
+          data-i18n-aria="eq"
+          aria-controls="eq"
+          aria-expanded="false"
+        >
+          <span data-i18n="eq">اکولایزر و حجم</span>
+          <span id="eq-current" class="setting-value"></span>
+        </button>
+        <button
+          type="button"
           class="set-item"
           data-act="wrap"
           id="wrap-btn"
@@ -246,7 +258,7 @@
           <button type="button" class="ghost wide keys-btn" data-act="update" data-i18n="update">به‌روزرسانی</button>
           <button type="button" class="ghost wide keys-btn dangerous" data-act="reset" data-i18n="reset">پاک کردن داده‌ها</button>
         </div>
-        <p class="set-ver" id="set-ver" dir="ltr">FREQ · v2.1.1</p>
+        <p class="set-ver" id="set-ver" dir="ltr">FREQ · v2.2.0</p>
       </div>
     </div>
 
@@ -527,6 +539,55 @@
       </div>
     </div>
 
+    <div id="eq" class="themes" role="dialog" aria-modal="true" aria-labelledby="eq-title" hidden>
+      <div class="themes-card eq-card">
+        <div class="themes-head">
+          <div>
+            <div class="word" dir="ltr">FREQ</div>
+            <h3 id="eq-title" data-i18n="eq">اکولایزر و حجم</h3>
+          </div>
+          <button type="button" class="ghost wide" data-act="eq" data-i18n="close">بستن</button>
+        </div>
+        <p class="themes-sub" data-i18n="eqSub">شش باند، یک فشرده‌ساز برای یکسان‌سازی حجم و ولوم جدا برای هر ایستگاه</p>
+        <p class="eq-status" id="eq-status" role="status" aria-live="polite"></p>
+
+        <div class="eq-presets" id="eq-presets" role="group" aria-label="EQ presets"></div>
+        <div class="eq-grid" id="eq-grid"></div>
+
+        <div class="eq-row">
+          <button type="button" class="ghost wide keys-btn" data-act="normalize" id="eq-normalize"
+            aria-pressed="false" data-i18n="eqNormalize">یکسان‌سازی حجم</button>
+          <label class="eq-inline" for="eq-strength">
+            <span data-i18n="eqStrength">شدت</span>
+            <input id="eq-strength" type="range" min="0" max="100" step="1" value="55" dir="ltr" />
+            <output id="eq-strength-n" dir="ltr">55%</output>
+          </label>
+        </div>
+
+        <div class="eq-row">
+          <label class="eq-inline" for="eq-master">
+            <span data-i18n="eqMaster">حجم کل</span>
+            <input id="eq-master" type="range" min="40" max="150" step="1" value="100" dir="ltr" />
+            <output id="eq-master-n" dir="ltr">100%</output>
+          </label>
+          <label class="eq-inline" for="eq-trim" id="eq-trim-row">
+            <span data-i18n="eqTrim">حجم این ایستگاه</span>
+            <input id="eq-trim" type="range" min="40" max="150" step="1" value="100" dir="ltr" />
+            <output id="eq-trim-n" dir="ltr">100%</output>
+          </label>
+        </div>
+        <p class="eq-note" id="eq-trim-name"></p>
+
+        <div class="eq-row">
+          <button type="button" class="ghost wide keys-btn" data-act="eqreset" data-i18n="eqResetBtn">صاف کردن EQ</button>
+          <button type="button" class="ghost wide keys-btn" data-act="corsreset" id="eq-cors" hidden>
+            <span data-i18n="eqCorsResetBtn">پاک کردن لیست بدون CORS</span> (<span id="eq-cors-n" dir="ltr">0</span>)
+          </button>
+        </div>
+        <p class="eq-help" data-i18n="eqHelp">اگر ایستگاهی هدر CORS نفرستد، اکولایزر روی آن اعمال نمی‌شود تا صدا قطع نشود — خودکار روی حالت بدون افکت می‌افتد.</p>
+      </div>
+    </div>
+
     <div id="themes" class="themes" role="dialog" aria-modal="true" aria-labelledby="themes-title" hidden>
       <div class="themes-card">
         <div class="themes-head">
@@ -559,18 +620,18 @@
 
     <div id="about" class="about" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
       <div class="about-card">
-        <img src="./assets/icon-192.png?v=34" width="88" height="88" alt="FREQ" />
+        <img src="./assets/icon-192.png?v=35" width="88" height="88" alt="FREQ" />
         <div class="word" dir="ltr">FREQ</div>
         <h3 id="about-title" data-i18n="aboutTitle"></h3>
         <p class="about-body" data-i18n="aboutBody"></p>
         <p class="about-maker" data-i18n="aboutMaker">ساخته شده توسط مبین.آ</p>
-        <p class="about-ver" id="about-ver" dir="ltr">v2.1.1</p>
+        <p class="about-ver" id="about-ver" dir="ltr">v2.2.0</p>
         <button id="about-close" type="button" data-i18n="close">بستن</button>
       </div>
     </div>
 
     <div id="loader" role="status" aria-live="polite">
-      <img src="./assets/icon-192.png?v=34" width="92" height="92" alt="" />
+      <img src="./assets/icon-192.png?v=35" width="92" height="92" alt="" />
       <div class="word" dir="ltr">FREQ</div>
       <div id="load-sub" data-i18n="loading">در حال اتصال…</div>
       <button id="load-retry" class="ghost wide" type="button" data-act="retry" data-i18n="retry" hidden>تلاش دوباره</button>
@@ -583,8 +644,13 @@
     </noscript>
 
     <audio id="audio" preload="none"></audio>
-    <script defer src="./core.js?v=34"></script>
-    <script defer src="./i18n.js?v=34"></script>
-    <script defer src="./app.js?v=34"></script>
+    <!-- Never wired into anything but the WebAudio graph; kept separate from
+         #audio on purpose: a cross-origin stream with no CORS header is muted
+         the moment it is routed through an AudioContext, so the plain element
+         must stay outside the graph. -->
+    <audio id="audio-fx" preload="none" crossorigin="anonymous" hidden></audio>
+    <script defer src="./core.js?v=35"></script>
+    <script defer src="./i18n.js?v=35"></script>
+    <script defer src="./app.js?v=35"></script>
   </body>
 </html>

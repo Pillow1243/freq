@@ -23,6 +23,11 @@
     canPlayStream,
     upgradeToHttps,
     mediaErrorInfo,
+    EQ_BANDS,
+    eqPreset,
+    eqPresetNames,
+    compressorSettings,
+    effectiveVolume,
     smartFilters,
     buildAltSearchQuery,
     hashHue,
@@ -48,6 +53,12 @@
     if (typeof document === "undefined" || !document || !document.getElementById) return null;
     return document.getElementById(id);
   };
+  /* Same idea for selector walks: `document` is gone once the window is torn
+     down, and a deferred render must degrade to “nothing to update”. */
+  const bySel = function (selector) {
+    if (typeof document === "undefined" || !document || !document.querySelectorAll) return [];
+    return Array.prototype.slice.call(document.querySelectorAll(selector));
+  };
   /* Mirrors, in the order they should be tried. Radio Browser rotates its
      public servers often (fi1/nl1 have been unreachable for weeks), so the
      list is a hint, not a promise: dead ones get a cooldown and the healthy
@@ -63,7 +74,7 @@
   const HOST_TIMEOUT = 6500;
   const HOST_BUDGET = 15000;
   const PAGE = 120;
-  const APP_VERSION = "2.1.1";
+  const APP_VERSION = "2.2.0";
   const API_TTL = 30 * 1000;
   const DIRSTATS_TTL = 6 * 60 * 60 * 1000;
   const COUNTRIES = [
@@ -271,6 +282,12 @@
     }
   }
 
+  /** Read a bounded number out of localStorage with a fallback. */
+  function numRange(raw, min, max, fallback) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
   const storedVol = Number(lsGet("freq-vol", "0.85"));
   const storedGeo = safeParse("freq-geo", null);
   const state = {
@@ -376,6 +393,18 @@
     needsGesture: false,
     reconnects: 0,
     reconnectTimer: 0,
+    /* Audio effects. `useFx` picks which of the two <audio> elements owns the
+       current playback: the plain one (no graph, works with every station) or
+       the CORS one (fed into WebAudio so EQ/normalisation can touch it). */
+    useFx: false,
+    eq: Core.sanitizeEq(safeParse("freq-eq", null)),
+    normalize: lsGet("freq-normalize", "0") === "1",
+    normStrength: numRange(lsGet("freq-norm-strength", "0.55"), 0, 1, 0.55),
+    master: numRange(lsGet("freq-master", "1"), 0.4, 1.5, 1),
+    trims: Core.sanitizeTrims(safeParse("freq-trims", {})),
+    noCors: (safeParse("freq-nocors", []) || []).filter(function (x) {
+      return typeof x === "string";
+    }).slice(0, 200),
     renderKey: "",
     renderedIds: [],
     cacheAt: 0,
@@ -466,6 +495,7 @@
     syncVersion();
     renderDirectoryStats();
     renderSearchHints();
+    renderEq();
     // data-i18n just overwrote the status bar with generic copy — re-apply the
     // real network diagnosis (offline vs. unreachable vs. rate limited).
     tickNetBar();
@@ -1458,8 +1488,11 @@
   function renderPlayer() {
     const s = state.current;
     const player = $("player");
-    const stage = $("stage");
     if (!player) return;
+    /* The EQ readouts and the settings badge describe which path is live, so
+       they ride along with this render instead of drifting behind it. */
+    syncEqReadouts();
+    const stage = $("stage");
     player.setAttribute("data-player-style", state.playerStyle);
     if (stage) stage.setAttribute("data-player-style", state.playerStyle);
     const fav = !!(s && isFav(s.stationuuid));
@@ -1491,8 +1524,7 @@
       b.setAttribute("aria-label", toggleLabel);
     });
 
-    const audio = $("audio");
-    const vol = audio ? audio.volume : state.userVol;
+    const vol = state.userVol;
     setText("vol-n", String(Math.round(vol * 100)));
     const muteBtn = $("mute-btn");
     if (muteBtn) muteBtn.classList.toggle("muted", vol < 0.01);
@@ -1601,6 +1633,7 @@
 
   function onAudioStarted(gen) {
     if (gen && gen !== state.playGen) return;
+    if (state.useFx) afx.sound = true;
     state.ignoreErr = false;
     state.fails = 0;
     state.reconnects = 0;
@@ -1632,7 +1665,7 @@
   let supportCache = null;
   function supportProfile() {
     if (supportCache) return supportCache;
-    const audio = $("audio");
+    const audio = audioEl();
     const can = function (type) {
       if (!audio || typeof audio.canPlayType !== "function") return "";
       try {
@@ -1701,7 +1734,7 @@
       document.removeEventListener("pointerdown", resume, true);
       document.removeEventListener("keydown", resume, true);
       armGestureResume._on = null;
-      const audio = $("audio");
+      const audio = audioEl();
       if (!audio || !state.current || state.playing) return;
       state.needsGesture = false;
       const go = audio.play();
@@ -1717,8 +1750,339 @@
     document.addEventListener("keydown", resume, true);
   }
 
+  /* ------------------------------------------------------------- fx graph
+     Why two <audio> elements: a MediaElementAudioSourceNode can only tap a
+     media element whose resource was fetched with CORS. Wire a cross-origin
+     stream that sends no `Access-Control-Allow-Origin` into an AudioContext
+     and the browser does not merely skip the EQ — it mutes the output. So the
+     plain element stays graph-free (works with every station) and `#audio-fx`
+     is only ever fetched in CORS mode; if that load fails we remember the
+     station and keep playing it on the plain element.
+  -------------------------------------------------------------------------- */
+  function plainElement() { return $("audio"); }
+  function fxElement() { return $("audio-fx"); }
+  function audioEl() { return state.useFx ? fxElement() : plainElement(); }
+  const afx = {
+    ctx: null, src: null, bands: [], comp: null, out: null,
+    ready: false, broken: false,
+    /* true once the graphed element actually started producing sound; before
+       that, any failure is treated as "no CORS headers" rather than "dead station" */
+    sound: false,
+    armsToasted: false,
+  };
+
+  function eqActive() {
+    return (state.eq || []).some(function (v) { return Math.abs(Number(v) || 0) > 0.05; });
+  }
+  function fxDesired() {
+    return eqActive() || !!state.normalize;
+  }
+  function audioGraphSupported() {
+    return !!(window.AudioContext || window.webkitAudioContext);
+  }
+  function corsBlocked(uuid) {
+    return !!uuid && state.noCors.indexOf(uuid) >= 0;
+  }
+  function rememberNoCors(uuid) {
+    if (!uuid || corsBlocked(uuid)) return;
+    state.noCors = [uuid].concat(state.noCors).slice(0, 200);
+    lsSet("freq-nocors", JSON.stringify(state.noCors));
+  }
+  function resetNoCors() {
+    state.noCors = [];
+    lsSet("freq-nocors", "[]");
+    toast(t("fxCorsReset"));
+    renderEq();
+  }
+  function fxWanted(station) {
+    return !!(station && fxDesired() && audioGraphSupported() && !corsBlocked(station.stationuuid));
+  }
+  function trimFor(station) {
+    if (!station || !state.trims) return 1;
+    const v = Number(state.trims[station.stationuuid]);
+    return Number.isFinite(v) ? Math.min(1.5, Math.max(0.4, v)) : 1;
+  }
+  /**
+   * The fx element is the only one fetched in CORS mode, so a station that
+   * sends no `Access-Control-Allow-Origin` fails here (load error or a
+   * rejected play()) while the exact same URL is perfectly playable on the
+   * plain element. Called from both failure paths, before either would mark the
+   * station broken: remember the stream, drop the effects and replay it.
+   */
+  function fxBlockedNow() {
+    if (!state.useFx || afx.sound || !state.current) return false;
+    if (corsBlocked(state.current.stationuuid)) return false;
+    const station = state.current;
+    rememberNoCors(station.stationuuid);
+    state.useFx = false;
+    afx.sound = false;
+    toast(t("fxUnavailable"), { duration: 3800 });
+    play(station);
+    return true;
+  }
+  function fxStatus() {
+    if (!fxDesired()) return "idle";
+    if (!audioGraphSupported()) return "unsupported";
+    if (state.useFx && afx.ready) return "on";
+    if (state.current && corsBlocked(state.current.stationuuid)) return "blocked";
+    return "waiting";
+  }
+  function ensureFxGraph() {
+    if (afx.ready) return afx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const el = fxElement();
+    if (!Ctx || !el) {
+      afx.broken = true;
+      return null;
+    }
+    try {
+      const ctx = new Ctx();
+      const src = ctx.createMediaElementSource(el);
+      const bands = EQ_BANDS.map(function (band) {
+        const node = ctx.createBiquadFilter();
+        node.type = band.type;
+        node.frequency.value = band.hz;
+        if (band.type === "peaking") node.Q.value = 0.9;
+        node.gain.value = 0;
+        return node;
+      });
+      let tail = src;
+      bands.forEach(function (node) {
+        tail.connect(node);
+        tail = node;
+      });
+      // The compressor is always in the chain and neutralised when off, so
+      // toggling normalisation never has to re-patch a live graph.
+      const comp = ctx.createDynamicsCompressor();
+      tail.connect(comp);
+      tail = comp;
+      const out = ctx.createGain();
+      tail.connect(out);
+      out.connect(ctx.destination);
+      afx.ctx = ctx;
+      afx.src = src;
+      afx.bands = bands;
+      afx.comp = comp;
+      afx.out = out;
+      afx.ready = true;
+      afx.broken = false;
+      applyEq();
+    } catch (_) {
+      afx.broken = true;
+      return null;
+    }
+    return afx;
+  }
+  function applyEq() {
+    if (!afx.ready) return;
+    const gains = Core.sanitizeEq(state.eq);
+    afx.bands.forEach(function (node, i) {
+      try {
+        node.gain.setTargetAtTime(gains[i] || 0, afx.ctx.currentTime, 0.02);
+      } catch (_) {
+        node.gain.value = gains[i] || 0;
+      }
+    });
+    const comp = afx.comp;
+    if (comp) {
+      const set = state.normalize ? compressorSettings(state.normStrength) : null;
+      const values = set || { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.1 };
+      /* Ramped, not jumped: these params move while audio is live, and an
+         instant change on the makeup gain is audible as a click. */
+      const put = function (param, v) {
+        try {
+          param.setTargetAtTime(v, afx.ctx.currentTime, 0.03);
+        } catch (_) {
+          try {
+            param.value = v;
+          } catch (__) {}
+        }
+      };
+      put(comp.threshold, values.threshold);
+      put(comp.knee, values.knee);
+      put(comp.ratio, values.ratio);
+      put(comp.attack, values.attack);
+      put(comp.release, values.release);
+      if (afx.out) put(afx.out.gain, set ? set.makeup : 1);
+    }
+  }
+  function resumeFx() {
+    if (!afx.ready || !afx.ctx || typeof afx.ctx.resume !== "function") return;
+    if (afx.ctx.state === "suspended") {
+      try { afx.ctx.resume(); } catch (_) {}
+    }
+  }
+  /** EQ/normalisation changes take effect live; off + flat tears the graph down to neutral. */
+  function setEq(gains, opts) {
+    state.eq = Core.sanitizeEq(gains);
+    lsSet("freq-eq", JSON.stringify(state.eq));
+    if (state.useFx) ensureFxGraph();
+    applyEq();
+    syncEqReadouts();
+    if (!(opts || {}).silent) renderEqPresets();
+    announceArmedFx();
+  }
+  /**
+   * Effects are attached at play() time (that is when the CORS-mode fetch is
+   * chosen), so turning them on mid-stream is a promise for the next station.
+   * Say so once, not on every slider tick.
+   */
+  function announceArmedFx() {
+    if (!fxDesired() || state.useFx || !state.playing || afx.armsToasted) return;
+    afx.armsToasted = true;
+    toast(t(fxUsableNow() ? "fxArmsOnPlay" : "fxUnavailable"), { duration: 3200 });
+  }
+  function applyEqPreset(name) {
+    setEq(eqPreset(name));
+    toast(t("eqPresetApplied") + " · " + name);
+  }
+  function toggleNormalize() {
+    if (state.normalize) afx.armsToasted = false;
+    state.normalize = !state.normalize;
+    lsSet("freq-normalize", state.normalize ? "1" : "0");
+    if (state.normalize) {
+      ensureFxGraph();
+      resumeFx();
+    }
+    applyEq();
+    renderEq();
+    renderPlayer();
+    announceArmedFx();
+  }
+  function fxUsableNow() {
+    return audioGraphSupported() && !(state.current && corsBlocked(state.current.stationuuid));
+  }
+  function eqBandLabel(band) {
+    return state.lang === "fa" ? band.fa : band.en;
+  }
+  function fmtHz(hz) {
+    return hz >= 1000 ? (hz / 1000).toFixed(hz % 1000 ? 1 : 0) + "k" : String(hz);
+  }
+  function renderEq() {
+    const grid = $("eq-grid");
+    if (!grid) return;
+    const gains = Core.sanitizeEq(state.eq);
+    grid.innerHTML = EQ_BANDS.map(function (band, i) {
+      const value = gains[i];
+      const hz = fmtHz(band.hz);
+      return `<div class="eq-band">
+        <label for="eq-b-${band.id}">
+          <span class="eq-band-name">${esc(eqBandLabel(band))}</span>
+          <span class="eq-band-hz" dir="ltr">${esc(hz)}</span>
+        </label>
+        <input id="eq-b-${band.id}" type="range" min="-12" max="12" step="0.5"
+          value="${value}" data-eqband="${i}" dir="ltr"
+          aria-valuetext="${value > 0 ? "+" : ""}${value} dB" />
+        <output class="eq-band-n" dir="ltr">${value > 0 ? "+" : ""}${value}</output>
+      </div>`;
+    }).join("");
+    renderEqPresets();
+    syncEqReadouts();
+  }
+  function renderEqPresets() {
+    const box = $("eq-presets");
+    if (!box) return;
+    const names = eqPresetNames();
+    const current = Core.sanitizeEq(state.eq);
+    box.innerHTML = names
+      .map(function (name) {
+        const same = Core.sanitizeEq(eqPreset(name)).every(function (v, i) { return v === current[i]; });
+        return `<button type="button" class="${same ? "on" : ""}" data-eqpreset="${esc(name)}"
+          aria-pressed="${same ? "true" : "false"}" dir="ltr">${esc(name)}</button>`;
+      })
+      .join("");
+  }
+  function syncEqReadouts() {
+    const gains = Core.sanitizeEq(state.eq);
+    bySel("[data-eqband]").forEach(function (el) {
+      const i = Number(el.dataset.eqband);
+      const v = gains[i] || 0;
+      if (document.activeElement !== el) el.value = String(v);
+      el.setAttribute("aria-valuetext", (v > 0 ? "+" : "") + v + " dB");
+      const out = el.parentElement ? el.parentElement.querySelector(".eq-band-n") : null;
+      if (out) out.textContent = (v > 0 ? "+" : "") + v;
+    });
+    const norm = $("eq-normalize");
+    if (norm) {
+      norm.setAttribute("aria-pressed", state.normalize ? "true" : "false");
+      norm.classList.toggle("on", !!state.normalize);
+    }
+    const strength = $("eq-strength");
+    if (strength) {
+      strength.value = String(Math.round(state.normStrength * 100));
+      strength.disabled = !state.normalize;
+    }
+    setText("eq-strength-n", Math.round(state.normStrength * 100) + "%");
+    const master = $("eq-master");
+    if (master) master.value = String(Core.trimToSlider(state.master));
+    setText("eq-master-n", Math.round(state.master * 100) + "%");
+    const trim = $("eq-trim");
+    if (trim) {
+      const has = !!state.current;
+      trim.disabled = !has;
+      trim.value = String(Core.trimToSlider(trimFor(state.current)));
+      setText("eq-trim-n", has ? Math.round(trimFor(state.current) * 100) + "%" : "—");
+      const row = $("eq-trim-row");
+      if (row) row.hidden = false;
+      setText("eq-trim-name", has ? state.current.name || "" : t("noStation"));
+    }
+    const status = $("eq-status");
+    if (status) {
+      const code = fxStatus();
+      const key =
+        code === "on" ? "fxOn" : code === "blocked" ? "fxBlocked" : code === "unsupported" ? "fxUnsupported" : code === "waiting" ? "fxArmsOnPlay" : "fxIdle";
+      status.textContent = t(key);
+      status.dataset.state = code;
+    }
+    const clear = $("eq-cors");
+    if (clear) {
+      clear.hidden = !state.noCors.length;
+      setText("eq-cors-n", String(state.noCors.length));
+    }
+    const badge = $("eq-current");
+    if (badge) {
+      const on = fxDesired();
+      badge.textContent = on
+        ? (fxStatus() === "on" ? t("fxShortOn") : t("fxShortPending"))
+        : t("fxShortOff");
+    }
+  }
+  function toggleEq() {
+    const el = $("eq");
+    if (el && !el.hidden) {
+      closeEq();
+      return;
+    }
+    closeSettings();
+    closeFilters();
+    openEq();
+  }
+  function openEq() {
+    const el = $("eq");
+    if (!el) return;
+    if (el.hidden) pushLayer("eq");
+    el.hidden = false;
+    renderEq();
+    const b = $("eq-btn");
+    if (b) {
+      b.classList.add("on");
+      b.setAttribute("aria-expanded", "true");
+    }
+  }
+  function closeEq(fromPop) {
+    const el = $("eq");
+    const was = el && !el.hidden;
+    if (el) el.hidden = true;
+    const b = $("eq-btn");
+    if (b) {
+      b.classList.remove("on");
+      b.setAttribute("aria-expanded", "false");
+    }
+    if (was) dropLayer("eq", fromPop);
+  }
+
   function tryReconnect() {
-    const audio = $("audio");
+    const audio = audioEl();
     if (!audio || !state.current || browserOffline()) return false;
     if ((state.reconnects || 0) >= 3) return false;
     state.reconnects = (state.reconnects || 0) + 1;
@@ -1745,7 +2109,7 @@
   }
 
   function tryFallback(gen) {
-    const audio = $("audio");
+    const audio = audioEl();
     const s = state.current;
     if (!audio || !s) return false;
     const primary = s.url_resolved || s.url;
@@ -1770,8 +2134,6 @@
   function play(station) {
     const s = normalizeStation(station) || (station && station.url_resolved ? station : null);
     if (!s) return;
-    const audio = $("audio");
-    if (!audio) return;
     clearWatchdog();
     state.playGen = (state.playGen || 0) + 1;
     const gen = state.playGen;
@@ -1799,11 +2161,14 @@
       state.failed = true;
       state.status = playBlockedCopy(cand.reason);
       state.audioUrl = "";
-      try {
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load();
-      } catch (_) {}
+      pauseAllAudio();
+      [plainElement(), fxElement()].forEach(function (el) {
+        if (!el) return;
+        try {
+          el.removeAttribute("src");
+          el.load();
+        } catch (_) {}
+      });
       markStreamResult(s.stationuuid, false);
       renderPlayer();
       setMediaSession(null);
@@ -1819,14 +2184,39 @@
       return;
     }
     if (cand.upgraded) toast(t("upgradedHttps"), { duration: 2600 });
-    audio.pause();
+    /* Pick the element: the graph-backed one only when an effect is armed and
+       this station has not already proven it sends no CORS headers. */
+    state.useFx = fxWanted(s) && !!ensureFxGraph();
+    afx.sound = false;
+    if (state.useFx) afx.armsToasted = false;
+    const audio = audioEl();
+    if (!audio) {
+      state.useFx = false;
+      return;
+    }
+    pauseAllAudio();
+    /* Release the element we are leaving: a stream keeps its socket open while
+       the src attribute points at it, and idle bandwidth is scarce on radio. */
+    const idle = state.useFx ? plainElement() : fxElement();
+    if (idle && idle.getAttribute("src")) {
+      try {
+        idle.removeAttribute("src");
+        idle.load();
+      } catch (_) {}
+    }
+    if (state.useFx) {
+      resumeFx();
+      renderEq();
+    }
     try {
       audio.src = cand.url;
+      audio.dataset.gen = String(gen);
       state.audioUrl = audio.src;
       audio.load();
     } catch (_) {
       state.audioUrl = cand.url;
     }
+    applyVolume();
     getJSON("/json/url/" + encodeURIComponent(s.stationuuid), { noCache: true }).catch(function () {});
     renderPlayer();
     markCurrent();
@@ -1851,6 +2241,7 @@
         toast(t("autoplayBlocked"), { duration: 3200 });
         return;
       }
+      if (fxBlockedNow()) return;
       if (tryFallback(gen)) return;
       failSkip();
     };
@@ -1873,7 +2264,7 @@
     state.failed = true;
     state.buffering = false;
     clockListen(false);
-    const audio = $("audio");
+    const audio = audioEl();
     const info = mediaErrorInfo(audio && audio.error);
     // A dropped connection while we were happily playing is usually our side:
     // retry the same station first, then blame it.
@@ -1937,7 +2328,7 @@
   }
 
   function toggle() {
-    const audio = $("audio");
+    const audio = audioEl();
     if (!audio) return;
     if (!state.current) {
       if (state.stations[0]) play(state.stations[0]);
@@ -1969,26 +2360,41 @@
       .catch(function () { failSkip(); });
   }
 
+  /** Push a user-space volume into both elements through master + station trim. */
+  function setElementVolume(userVolValue) {
+    const v = effectiveVolume(userVolValue, state.master, trimFor(state.current));
+    [plainElement(), fxElement()].forEach(function (el) {
+      if (el) el.volume = v;
+    });
+    return v;
+  }
+  function applyVolume() {
+    return setElementVolume(state.userVol);
+  }
+  function pauseAllAudio() {
+    [plainElement(), fxElement()].forEach(function (el) {
+      if (!el) return;
+      try {
+        el.pause();
+      } catch (_) {}
+    });
+  }
   function setVol(v, silent) {
     v = Math.min(1, Math.max(0, Number(v) || 0));
-    const audio = $("audio");
-    if (audio) audio.volume = v;
-    document.querySelectorAll("[data-vol]").forEach(function (el) {
+    state.userVol = v;
+    if (v > 0.01) state.prevVol = v;
+    if (!silent) lsSet("freq-vol", String(v));
+    bySel("[data-vol]").forEach(function (el) {
       el.value = String(v);
     });
-    if (v > 0.01) state.prevVol = v;
-    if (!silent) {
-      state.userVol = v;
-      lsSet("freq-vol", String(v));
-    }
+    applyVolume();
     setText("vol-n", String(Math.round(v * 100)));
     const muteBtn = $("mute-btn");
     if (muteBtn) muteBtn.classList.toggle("muted", v < 0.01);
+    syncEqReadouts();
   }
   function toggleMute() {
-    const audio = $("audio");
-    const cur = audio ? audio.volume : state.userVol;
-    if (cur < 0.01) setVol(state.prevVol || 0.85);
+    if (state.userVol < 0.01) setVol(state.prevVol || 0.85);
     else setVol(0);
   }
   function setSleep(m) {
@@ -2026,6 +2432,7 @@
     map: "#map",
     car: "#car",
     themes: "#themes .themes-card",
+    eq: "#eq .themes-card",
     wrap: "#wrap .themes-card",
     playerstyles: "#playerstyles .themes-card",
   };
@@ -2118,6 +2525,7 @@
     else if (id === "map") closeMap(true);
     else if (id === "car") closeCar(true);
     else if (id === "themes") closeThemes(true);
+    else if (id === "eq") closeEq(true);
     else if (id === "wrap") closeWrap(true);
     else if (id === "playerstyles") closePlayerStyles(true);
     else dropLayer(id, true);
@@ -2457,6 +2865,11 @@
         wave: state.wave,
         hd: state.hd,
         onlyPlayable: onlyPlayable(),
+        eq: Core.sanitizeEq(state.eq),
+        normalize: !!state.normalize,
+        normStrength: state.normStrength,
+        master: state.master,
+        trims: Core.sanitizeTrims(state.trims),
       },
     };
     if (typeof URL === "undefined" || !URL.createObjectURL) return;
@@ -2526,6 +2939,22 @@
             state.onlyPlayable = data.settings.onlyPlayable;
             lsSet("freq-onlyplayable", data.settings.onlyPlayable ? "1" : "0");
             syncOnlyPlayableBtn();
+          }
+          if (data.settings.eq || typeof data.settings.normalize === "boolean") {
+            state.eq = Core.sanitizeEq(data.settings.eq);
+            state.normalize = !!data.settings.normalize;
+            state.normStrength = Core.clamp(
+              Number(data.settings.normStrength) > 0 ? Number(data.settings.normStrength) : 0.55, 0, 1
+            );
+            state.master = Number(data.settings.master) > 0 ? Math.min(1.5, Number(data.settings.master)) : 1;
+            state.trims = Core.sanitizeTrims(data.settings.trims);
+            lsSet("freq-eq", JSON.stringify(state.eq));
+            lsSet("freq-normalize", state.normalize ? "1" : "0");
+            lsSet("freq-norm-strength", String(state.normStrength));
+            lsSet("freq-master", String(state.master));
+            lsSet("freq-trims", JSON.stringify(state.trims));
+            renderEq();
+            applyVolume();
           }
           if (data.settings.lang === "fa" || data.settings.lang === "en") {
             state.lang = data.settings.lang;
@@ -2704,14 +3133,14 @@
     step();
   }
   function fadeVol(from, to, ms) {
-    const audio = $("audio");
+    const audio = audioEl();
     if (!audio) return;
     if (state.fadeIv) clearInterval(state.fadeIv);
-    audio.volume = from;
+    setElementVolume(from);
     const t0 = Date.now();
     state.fadeIv = setInterval(function () {
       const p = Math.min(1, (Date.now() - t0) / ms);
-      audio.volume = from + (to - from) * p;
+      setElementVolume(from + (to - from) * p);
       if (p >= 1) {
         clearInterval(state.fadeIv);
         state.fadeIv = 0;
@@ -2726,8 +3155,7 @@
       state.sleepMin = 0;
       renderSleep();
       syncDockSleep();
-      const audio = $("audio");
-      if (audio) audio.pause();
+      pauseAllAudio();
       state.playing = false;
       state.buffering = false;
       state.status = "";
@@ -2739,7 +3167,7 @@
     }
     if (left < 45000) {
       const v = (state.userVol || 0.85) * (left / 45000);
-      if ($("audio")) $("audio").volume = Math.max(0.02, v);
+      setElementVolume(Math.max(0.02, v));
     }
   }
   function snooze() {
@@ -2751,8 +3179,7 @@
     state.alarm.last = "";
     saveAlarm();
     syncAlarmUi();
-    const audio = $("audio");
-    if (audio) audio.pause();
+    pauseAllAudio();
     closeStand();
     toast(t("snooze"));
   }
@@ -4044,12 +4471,7 @@
       .then(function () { toast(t("brokenSent"), { duration: 2600 }); })
       .catch(function () { toast(t("brokenLocal"), { duration: 3200 }); });
     if (state.current && sameStation(state.current, s)) {
-      const audio = $("audio");
-      if (audio) {
-        try {
-          audio.pause();
-        } catch (_) {}
-      }
+      pauseAllAudio();
       state.playing = false;
       state.buffering = false;
       state.failed = false;
@@ -4609,57 +5031,126 @@
     }
 
     /* Player controls --------------------------------------------------- */
-    const audio = $("audio");
-    if (audio) {
-      audio.addEventListener("playing", function () {
-        if (!state.current) return;
-        if (state.playing) return;
+    // Both media elements share one handler set, and only the element that
+    // owns the current playback may touch player state: the idle one fires
+    // pause/emptied events when we switch paths, and honouring those would
+    // stop the music.
+    function bindMedia(el, isFx) {
+      if (!el) return;
+      const mine = function () {
+        return !!state.useFx === isFx && Number(el.dataset.gen || -1) === state.playGen;
+      };
+      el.addEventListener("playing", function () {
+        if (!mine() || !state.current || state.playing) return;
         onAudioStarted(state.playGen);
       });
-      audio.addEventListener("pause", function () {
-        if (state.ignoreErr) return;
+      el.addEventListener("pause", function () {
+        if (!mine() || state.ignoreErr) return;
         state.playing = false;
         state.buffering = false;
         clockListen(false);
         renderPlayer();
         saveStats();
       });
-      audio.addEventListener("waiting", function () {
-        if (!state.current || state.status === t("failed")) return;
+      el.addEventListener("waiting", function () {
+        if (!mine() || !state.current || state.status === t("failed")) return;
         state.buffering = true;
         renderPlayer();
       });
-      audio.addEventListener("stalled", function () {
-        if (!state.current || !state.playing) return;
+      el.addEventListener("stalled", function () {
+        if (!mine() || !state.current || !state.playing) return;
         state.buffering = true;
         state.status = t("buffering");
         renderPlayer();
-        if (navigator.onLine === false) return;
+        if (browserOffline()) return;
         const gen = state.playGen;
         setTimeout(function () {
-          if (gen !== state.playGen || state.playing === false) return;
-          if (audio.readyState >= 2) return;
+          if (gen !== state.playGen || !state.playing) return;
+          if (el.readyState >= 2) return;
           failSkip();
         }, 9000);
       });
-      audio.addEventListener("canplay", function () {
-        if (!state.buffering) return;
+      el.addEventListener("canplay", function () {
+        if (!mine() || !state.buffering) return;
         state.buffering = false;
         renderPlayer();
       });
-      audio.addEventListener("error", function () {
-        if (state.ignoreErr || state.scanning) return;
+      el.addEventListener("error", function () {
+        if (!mine() || state.scanning) return;
+        /* On the fx element an error before any sound means "no CORS headers",
+           not "dead station": the plain element plays the very same URL fine. */
+        if (isFx && fxBlockedNow()) return;
         failSkip();
       });
-      audio.addEventListener("ended", function () {
-        if (state.scanning) return;
+      el.addEventListener("ended", function () {
+        if (!mine() || state.scanning) return;
         failSkip();
       });
-      audio.addEventListener("loadedmetadata", function () {
-        if (state.ignoreErr) return;
+      el.addEventListener("loadedmetadata", function () {
+        if (!mine() || state.ignoreErr) return;
         clearWatchdog();
       });
     }
+    bindMedia(plainElement(), false);
+    bindMedia(fxElement(), true);
+
+    /* EQ / volume sliders ------------------------------------------------ */
+    /* The band row is re-rendered whenever the dialog opens (labels are
+       translated), so the listeners live on the container, not on the inputs. */
+    const eqGrid = $("eq-grid");
+    if (eqGrid) {
+      const commit = function (target) {
+        const el = target.closest ? target.closest("[data-eqband]") : null;
+        if (!el) return;
+        const list = Core.sanitizeEq(state.eq);
+        list[Number(el.dataset.eqband)] = Core.clampDb(el.value);
+        setEq(list, { silent: true });
+      };
+      eqGrid.addEventListener("input", function (e) {
+        commit(e.target);
+      });
+      eqGrid.addEventListener("change", function (e) {
+        commit(e.target);
+        renderEqPresets();
+      });
+    }
+    const eqPresets = $("eq-presets");
+    if (eqPresets) {
+      eqPresets.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-eqpreset]");
+        if (btn) applyEqPreset(btn.dataset.eqpreset);
+      });
+    }
+    function bindRange(id, apply) {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener("input", apply);
+      el.addEventListener("change", function () {
+        apply();
+      });
+    }
+    bindRange("eq-master", function () {
+      state.master = Core.sliderToTrim($("eq-master").value);
+      lsSet("freq-master", String(state.master));
+      applyVolume();
+      syncEqReadouts();
+    });
+    bindRange("eq-trim", function () {
+      const s = state.current;
+      if (!s) return;
+      state.trims[s.stationuuid] = Core.sliderToTrim($("eq-trim").value);
+      lsSet("freq-trims", JSON.stringify(Core.sanitizeTrims(state.trims)));
+      applyVolume();
+      syncEqReadouts();
+    });
+    bindRange("eq-strength", function () {
+      const el = $("eq-strength");
+      state.normStrength = Math.min(1, Math.max(0, Number(el.value) / 100));
+      lsSet("freq-norm-strength", String(state.normStrength));
+      applyEq();
+      syncEqReadouts();
+    });
+
     document.querySelectorAll("[data-vol]").forEach(function (el) {
       el.addEventListener("input", function () { setVol(el.value); });
       el.addEventListener("change", function () { setVol(el.value); });
@@ -4819,6 +5310,12 @@
       else if (act === "retry") retryLoad();
       else if (act === "local") showLocalLibrary();
       else if (act === "playable") toggleOnlyPlayable();
+      else if (act === "eq") toggleEq();
+      else if (act === "normalize") toggleNormalize();
+      else if (act === "eqreset") {
+        setEq(Core.sanitizeEq([]));
+        toast(t("eqReset"));
+      } else if (act === "corsreset") resetNoCors();
       else if (act === "update") checkForUpdates();
       else if (act === "reset") {
         if (window.confirm(t("resetTitle") + "\n" + t("resetBody"))) resetAllData();
@@ -4890,6 +5387,7 @@
       else if (e.key === "m" || e.key === "M") toggleMap();
       else if (e.key === "v" || e.key === "V") toggleCar();
       else if (e.key === "t" || e.key === "T") { closeSettings(); toggleThemes(); }
+      else if (e.key === "e" || e.key === "E") toggleEq();
       else if (e.key === "y" || e.key === "Y") { closeSettings(); toggleWrap(); }
       else if (e.key >= "1" && e.key <= "6") {
         const i = Number(e.key) - 1;
@@ -4906,8 +5404,7 @@
         navigator.mediaSession.setActionHandler("nexttrack", function () { playRel(1); });
         navigator.mediaSession.setActionHandler("previoustrack", function () { playRel(-1); });
         navigator.mediaSession.setActionHandler("stop", function () {
-          const audio = $("audio");
-          if (audio) audio.pause();
+          pauseAllAudio();
         });
       } catch (_) {}
     }
@@ -5000,6 +5497,8 @@
       syncGeoBtn();
       syncOnlyPlayableBtn();
       syncVoiceBtn();
+      renderEq();
+      applyVolume();
       if (browserOffline()) markOffline(); else setNetBar(false);
       setVol(state.userVol, true);
       renderPlayer();

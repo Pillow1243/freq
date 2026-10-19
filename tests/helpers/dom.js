@@ -124,7 +124,65 @@ function makeDom(search, options) {
   window.open = function () {
     return null;
   };
+  /* A tiny WebAudio double. jsdom ships no AudioContext, so the graph code path
+     would silently be skipped; this records what the app patched together so the
+     EQ tests can assert on real wiring instead of on nothing. */
+  if (opts.audioGraph) {
+    const log = (window.__fxLog = { nodes: [], calls: [] });
+    const param = function (name) {
+      return {
+        value: 0,
+        setValueAtTime: function (v) { log.calls.push(name + ".setValueAtTime=" + v); },
+        setTargetAtTime: function (v) { log.calls.push(name + ".setTargetAtTime=" + v); },
+        linearRampToValueAtTime: function () {},
+        cancelScheduledValues: function () {},
+      };
+    };
+    const node = function (kind) {
+      return {
+        kind: kind,
+        type: "",
+        connect: function (target) { log.nodes.push(kind + "->" + (target && target.kind)); return target; },
+        disconnect: function () { log.nodes.push(kind + "!disconnect"); },
+        frequency: param(kind + ".frequency"),
+        Q: param(kind + ".Q"),
+        gain: param(kind + ".gain"),
+        threshold: param(kind + ".threshold"),
+        knee: param(kind + ".knee"),
+        ratio: param(kind + ".ratio"),
+        attack: param(kind + ".attack"),
+        release: param(kind + ".release"),
+        makeupGain: param(kind + ".makeupGain"),
+      };
+    };
+    function FakeAudioContext() {
+      log.calls.push("ctx");
+      this.state = "suspended";
+      this.currentTime = 0;
+      this.destination = node("dest");
+      this.sampleRate = 48000;
+      this.createBiquadFilter = function () { return node("biquad"); };
+      this.createDynamicsCompressor = function () { return node("comp"); };
+      this.createGain = function () { return node("gain"); };
+      this.createMediaElementSource = function (el) {
+        log.calls.push("source:" + (el && el.id));
+        return node("src");
+      };
+      this.resume = function () { log.calls.push("resume"); this.state = "running"; return Promise.resolve(); };
+    }
+    window.AudioContext = FakeAudioContext;
+    if (opts.audioGraph === "throws") {
+      window.AudioContext = function () { throw new Error("AudioContext blocked"); };
+    }
+  }
   window.HTMLMediaElement.prototype.play = function () {
+    /* Chrome rejects play() outright when a crossOrigin="anonymous" resource is
+       refused by CORS, which is exactly the case the fallback has to survive. */
+    if (opts.rejectFxPlay && this.id === "audio-fx") {
+      const err = new Error("load of media resource failed");
+      err.name = "NotSupportedError";
+      return Promise.reject(err);
+    }
     return Promise.resolve();
   };
   window.HTMLMediaElement.prototype.pause = function () {};

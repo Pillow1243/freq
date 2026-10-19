@@ -311,3 +311,106 @@ test("normalizeStation keeps the city from the raw state field", () => {
   });
   assert.equal(s.city, "Berlin");
 });
+
+/* ------------------------------------------------------------------ equalizer */
+
+test("EQ band table is a usable shelf-peaking-shelf ladder", () => {
+  const bands = Core.EQ_BANDS;
+  assert.equal(bands.length, Core.EQ_LIMITS.bandCount);
+  assert.equal(bands[0].type, "lowshelf");
+  assert.equal(bands[bands.length - 1].type, "highshelf");
+  assert.ok(bands.slice(1, -1).every((b) => b.type === "peaking"));
+  bands.reduce((prev, b) => {
+    assert.ok(b.hz > prev, "frequencies must ascend");
+    return b.hz;
+  }, 0);
+  assert.equal(new Set(bands.map((b) => b.id)).size, bands.length, "ids are unique (they become DOM ids)");
+  bands.forEach((b) => {
+    assert.ok(b.fa && b.en, "every band is labelled in both languages");
+    assert.ok(b.hz >= 20 && b.hz <= 22000, "inside the audible range");
+  });
+});
+
+test("clampDb keeps a slider value legal", () => {
+  assert.equal(Core.clampDb(3), 3);
+  assert.equal(Core.clampDb(-99), Core.EQ_LIMITS.min);
+  assert.equal(Core.clampDb(99), Core.EQ_LIMITS.max);
+  assert.equal(Core.clampDb(2.27), 2.3, "quantised to a tenth of a dB");
+  assert.equal(Core.clampDb(""), 0);
+  assert.equal(Core.clampDb(undefined), 0);
+  assert.equal(Core.clampDb(Infinity), 0, "never poison the graph with Infinity");
+});
+
+test("sanitizeEq always returns exactly bandCount slots", () => {
+  assert.deepEqual(Core.sanitizeEq(null), [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Core.sanitizeEq([3]), [3, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Core.sanitizeEq([1, 2, 3, 4, 5, 6, 7, 8]), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(Core.sanitizeEq("nonsense"), [0, 0, 0, 0, 0, 0]);
+  assert.ok(Core.isFlatEq(Core.sanitizeEq([0.01, 0, 0, 0, 0, 0])), "0.01 dB rounds away");
+  assert.equal(Core.isFlatEq(Core.sanitizeEq([0.1, 0, 0, 0, 0, 0])), false);
+});
+
+test("presets are complete arrays and never hand out the table itself", () => {
+  const names = Core.eqPresetNames();
+  assert.ok(names.length >= 6);
+  names.forEach((name) => {
+    assert.equal(Core.eqPreset(name).length, Core.EQ_LIMITS.bandCount, name + " must fill every band");
+  });
+  assert.deepEqual(Core.eqPreset("flat"), [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Core.eqPreset("does-not-exist"), Core.eqPreset("flat"));
+  const got = Core.eqPreset("bass");
+  got[0] = 0;
+  assert.notEqual(Core.eqPreset("bass")[0], 0, "callers cannot corrupt the preset table");
+  /* Every preset must stay inside the slider range or the UI would lie. */
+  names.forEach((name) => {
+    Core.EQ_PRESETS[name].forEach((v) => {
+      assert.ok(v >= Core.EQ_LIMITS.min && v <= Core.EQ_LIMITS.max, name + " out of range");
+    });
+  });
+});
+
+test("normalisation strength trades loudness for dynamics monotonically", () => {
+  const soft = Core.compressorSettings(0.2);
+  const hard = Core.compressorSettings(1);
+  assert.ok(hard.threshold < soft.threshold, "more strength pulls the threshold down");
+  assert.ok(hard.ratio > soft.ratio, "more strength squeezes harder");
+  assert.ok(hard.makeup > soft.makeup, "more strength lifts the makeup gain");
+  assert.ok(hard.knee < soft.knee, "a harder setting uses a tighter knee");
+  const junk = Core.compressorSettings("loud");
+  assert.deepEqual(junk, Core.compressorSettings(0.55), "junk falls back to the middle");
+  assert.ok(hard.makeup <= 2, "never a runaway gain");
+});
+
+test("effective volume composes and clamps instead of silently saturating", () => {
+  assert.equal(Core.effectiveVolume(0.5, 1, 1), 0.5);
+  assert.equal(Core.effectiveVolume(0.5, 1.25, 1.28), 0.8);
+  assert.equal(Core.effectiveVolume(0.9, 1.5, 1.5), 1, "clamped to what the element can do");
+  assert.equal(Core.effectiveVolume(0, 1.5, 1.5), 0);
+  assert.equal(Core.effectiveVolume(-4, 1, 1), 0);
+  assert.equal(Core.effectiveVolume(0.5), 0.5, "missing trims count as unity");
+  assert.equal(Core.effectiveVolume(0.5, NaN, Infinity), 0.5);
+});
+
+test("per-station trims survive only if they are useful", () => {
+  const out = Core.sanitizeTrims({ a: 1.4, b: 1, c: 99, d: -5, "": 2, e: "x" });
+  assert.deepEqual(out, { a: 1.4, c: 1.5, d: 0.4 }, "identity, junk and empty keys are dropped");
+  assert.deepEqual(Core.sanitizeTrims(null), {});
+  assert.deepEqual(Core.sanitizeTrims("nope"), {});
+  const many = {};
+  for (let i = 0; i < 500; i += 1) many["u" + i] = 1.2;
+  assert.ok(Object.keys(Core.sanitizeTrims(many)).length <= 120, "localStorage stays bounded");
+});
+
+test("trim slider speaks the same language as the label", () => {
+  assert.equal(Core.trimToSlider(1), 100, "unity is 100%");
+  assert.equal(Core.sliderToTrim(100), 1);
+  assert.equal(Core.sliderToTrim(150), 1.5);
+  assert.equal(Core.sliderToTrim(40), 0.4);
+  assert.equal(Core.sliderToTrim(0), 0.4, "clamped into the legal band");
+  assert.equal(Core.sliderToTrim(999), 1.5);
+  assert.equal(Core.sliderToTrim("loud"), 1, "junk means unity, not silence");
+  assert.equal(Core.trimToSlider(NaN), 100);
+  [0.4, 0.7, 1, 1.2, 1.5].forEach((trim) => {
+    assert.equal(Core.sliderToTrim(Core.trimToSlider(trim)), trim, trim + " must round-trip");
+  });
+});

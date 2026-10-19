@@ -2,7 +2,7 @@
    Made by Mobin.A. Bump CACHE_VERSION whenever the shell changes. */
 "use strict";
 
-const CACHE_VERSION = "freq-v2.1.1";
+const CACHE_VERSION = "freq-v2.2.0";
 const SHELL_CACHE = CACHE_VERSION + "-shell";
 const RUNTIME_CACHE = CACHE_VERSION + "-runtime";
 const API_CACHE = CACHE_VERSION + "-api";
@@ -11,11 +11,11 @@ const SHELL = [
   "./",
   "./index.html",
   "./404.html",
-  "./core.js?v=34",
-  "./i18n.js?v=34",
-  "./app.js?v=34",
-  "./styles.css?v=34",
-  "./manifest.webmanifest?v=34",
+  "./core.js?v=35",
+  "./i18n.js?v=35",
+  "./app.js?v=35",
+  "./styles.css?v=35",
+  "./manifest.webmanifest?v=35",
   "./assets/icon.svg",
   "./assets/icon-180.png",
   "./assets/icon-192.png",

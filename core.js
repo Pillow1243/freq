@@ -350,6 +350,144 @@
     return p.toString();
   }
 
+  /* --------------------------------------------------------------------- fx
+     An equalizer and loudness normalisation need a WebAudio graph, and a
+     graph can only tap a *same-origin or CORS-clean* media element: a
+     cross-origin stream without Access-Control-Allow-Origin is silently
+     muted once it is wired into an AudioContext. So the app keeps two audio
+     elements and picks one per station — see app.js (audioEl/fxWanted).
+     Everything below is pure so it can be unit-tested without a browser.
+  -------------------------------------------------------------------------- */
+
+  /** Six shelving/peaking bands; `type` matches BiquadFilterNode. */
+  const EQ_BANDS = [
+    { id: "sub", hz: 60, type: "lowshelf", fa: "بم", en: "Sub" },
+    { id: "bass", hz: 170, type: "peaking", fa: "بیس", en: "Bass" },
+    { id: "lowmid", hz: 350, type: "peaking", fa: "تن", en: "Low mid" },
+    { id: "mid", hz: 1400, type: "peaking", fa: "وسط", en: "Mids" },
+    { id: "presence", hz: 4000, type: "peaking", fa: "حضور", en: "Presence" },
+    { id: "air", hz: 11000, type: "highshelf", fa: "زیر", en: "Air" },
+  ];
+
+  const EQ_LIMITS = { min: -12, max: 12, bandCount: 6 };
+
+  /**
+   * Gain presets in dB, one value per EQ_BANDS entry. Values are ordered
+   * low → high so the UI and the graph agree.
+   */
+  const EQ_PRESETS = {
+    flat: [0, 0, 0, 0, 0, 0],
+    bass: [7, 5, 1, 0, -1, -2],
+    dance: [5, 3, 0, -1, 2, 4],
+    vocal: [-4, -2, 2, 5, 4, 1],
+    talk: [-8, -4, 3, 5, 3, -1],
+    night: [-3, -1, 2, 2, 0, -4],
+    lofi: [-2, 2, 3, 1, -3, -7],
+    acoustic: [2, 3, 2, 1, 2, 3],
+  };
+
+  /** Clamp one dB value into the legal range (0 when junk). */
+  function clampDb(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round(Math.min(EQ_LIMITS.max, Math.max(EQ_LIMITS.min, n)) * 10) / 10;
+  }
+
+  /** Accept only a 6-slot numeric array of dB gains. */
+  function sanitizeEq(input) {
+    const out = new Array(EQ_LIMITS.bandCount).fill(0);
+    const list = Array.isArray(input) ? input : null;
+    if (!list) return out;
+    for (let i = 0; i < EQ_LIMITS.bandCount; i += 1) out[i] = clampDb(list[i]);
+    return out;
+  }
+
+  function isFlatEq(eq) {
+    return sanitizeEq(eq).every(function (v) { return v === 0; });
+  }
+
+  /** EQ gain values for a named preset (falls back to flat). */
+  function eqPreset(name) {
+    const key = text(name, 20).toLowerCase();
+    return sanitizeEq(EQ_PRESETS[key] || EQ_PRESETS.flat);
+  }
+
+  function eqPresetNames() {
+    return Object.keys(EQ_PRESETS);
+  }
+
+  /**
+   * Compressor settings for loudness normalisation. `strength` is 0..1;
+   * higher means a lower threshold, more ratio and more makeup gain, so the
+   * quiet stations come up and the loud ones stop punching.
+   */
+  function compressorSettings(strength) {
+    const s = Number(strength);
+    const k = Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0.55;
+    return {
+      threshold: Math.round((-8 - 24 * k) * 10) / 10,
+      knee: Math.round((4 + 18 * (1 - k)) * 10) / 10,
+      ratio: Math.round((2 + 14 * k) * 10) / 10,
+      attack: 0.004,
+      release: Math.round((0.25 - 0.15 * k) * 1000) / 1000,
+      makeup: Math.round((1 + 0.55 * k) * 100) / 100,
+    };
+  }
+
+  /**
+   * Final element volume. `trim` is the per-station multiplier (0.5–1.5),
+   * `master` the global one; the result must stay inside [0,1] because the
+   * element clamps silently and a 1.4 would read as "broken volume slider".
+   */
+  function effectiveVolume(userVol, master, trim) {
+    const u = Number(userVol);
+    const base = Number.isFinite(u) ? Math.min(1, Math.max(0, u)) : 0.85;
+    const m = Number(master);
+    const t = Number(trim);
+    const factor =
+      (Number.isFinite(m) ? Math.min(1.5, Math.max(0, m)) : 1) *
+      (Number.isFinite(t) ? Math.min(1.5, Math.max(0, t)) : 1);
+    const out = base * factor;
+    if (!(out > 0)) return 0;
+    return Math.round(Math.min(1, out) * 1000) / 1000;
+  }
+
+  const TRIM_MIN = 0.4;
+  const TRIM_MAX = 1.5;
+
+  /** Keep the per-station trim map small and free of junk keys. */
+  function sanitizeTrims(input, max) {
+    const limit = Number(max) > 0 ? Number(max) : 120;
+    const src = input && typeof input === "object" ? input : {};
+    const out = {};
+    const keys = Object.keys(src);
+    for (let i = 0; i < keys.length && i < limit * 2; i += 1) {
+      const id = text(keys[i], 80);
+      const value = Number(src[keys[i]]);
+      if (!id || !Number.isFinite(value)) continue;
+      if (Math.abs(value - 1) < 0.001) continue;
+      out[id] = Math.round(Math.min(TRIM_MAX, Math.max(TRIM_MIN, value)) * 100) / 100;
+      if (Object.keys(out).length >= limit) break;
+    }
+    return out;
+  }
+
+  /**
+   * Slider position for a trim multiplier. The slider carries the trim as a
+   * percentage (40..150), so the thumb reading and the label never disagree and
+   * unity is exactly 100 — no "why is the middle 55%" for the user.
+   */
+  function trimToSlider(trim) {
+    const t = Number(trim);
+    const v = Number.isFinite(t) ? Math.min(TRIM_MAX, Math.max(TRIM_MIN, t)) : 1;
+    return Math.round(v * 100);
+  }
+  function sliderToTrim(percent) {
+    const p = Number(percent);
+    if (!Number.isFinite(p)) return 1;
+    return Math.round(Math.min(TRIM_MAX * 100, Math.max(TRIM_MIN * 100, p))) / 100;
+  }
+
   /* -------------------------------------------------------------- transport */
 
   /**
@@ -733,6 +871,19 @@
     smartFilters: smartFilters,
     parseFilters: parseFilters,
     filtersToQuery: filtersToQuery,
+    EQ_BANDS: EQ_BANDS,
+    EQ_PRESETS: EQ_PRESETS,
+    EQ_LIMITS: EQ_LIMITS,
+    clampDb: clampDb,
+    sanitizeEq: sanitizeEq,
+    isFlatEq: isFlatEq,
+    eqPreset: eqPreset,
+    eqPresetNames: eqPresetNames,
+    compressorSettings: compressorSettings,
+    effectiveVolume: effectiveVolume,
+    sanitizeTrims: sanitizeTrims,
+    trimToSlider: trimToSlider,
+    sliderToTrim: sliderToTrim,
     classifyFailure: classifyFailure,
     backoff: backoff,
     mirrorPlan: mirrorPlan,

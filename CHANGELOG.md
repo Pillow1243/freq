@@ -3,6 +3,50 @@
 All notable changes to FREQ are documented here. The site has no build step, so
 versions are tagged in `package.json` and `APP_VERSION` in `app.js`.
 
+## 2.2.0 — 2026-10-20
+
+The equalizer and the volume model from the checklist (P1 radio features).
+
+### Added
+- **Six-band equalizer** (60 Hz … 11 kHz: low shelf, four peaking bands, high
+  shelf, ±12 dB) with eight presets — `flat / bass / dance / vocal / talk /
+  night / lofi / acoustic`. Live in the dialog, persisted in `freq-eq`, reset
+  with one button, `E` opens it from anywhere.
+- **Loudness normalisation**: a `DynamicsCompressorNode` is always in the chain
+  and neutralised while off, so toggling never re-patches a live graph. One
+  strength slider moves threshold (−8…−32 dB), ratio (2…16) and makeup gain
+  together, and all changes are ramped (`setTargetAtTime`) instead of jumped.
+- **Two volume trims**: a master trim and a per-station trim (both 40…150%,
+  stored as a multiplier in `freq-trims`). The final element volume is
+  `user × master × station`, clamped to `[0,1]` in `core.js` so the slider can
+  never lie about itself.
+- **Equalizer dialog** (`#eq`) with band rows, preset chips, both trims and a
+  status line that says which path is live; the settings row shows
+  `EQ فعال / آماده برای پخش بعدی / خاموش`.
+- `core.js`: `EQ_BANDS`, `EQ_LIMITS`, `EQ_PRESETS`, `clampDb`, `sanitizeEq`,
+  `isFlatEq`, `eqPreset`, `eqPresetNames`, `compressorSettings`,
+  `effectiveVolume`, `sanitizeTrims`, `trimToSlider`, `sliderToTrim`.
+
+### Fixed
+- **Effects can no longer mute a station.** `createMediaElementSource` silences
+  a cross-origin stream that sends no `Access-Control-Allow-Origin`, so the
+  graph is wired to a dedicated `#audio-fx` element that is the only one
+  fetched with `crossorigin="anonymous"`; `#audio` stays outside the graph and
+  still plays everything. If a station refuses the CORS request, FREQ remembers
+  it in `freq-nocors`, says why and replays it on the plain element — the
+  station is not marked broken, and other stations keep their equalizer.
+- **Both media elements share one guarded handler set.** The idle element fires
+  `pause`/`error` when the path switches; every handler now checks that it owns
+  the current generation, so switching to the EQ mid-stream no longer stops the
+  music or skips the station.
+- Sleep-timer fade and mute now go through the same trim pipeline, so fading
+  out no longer overrides a per-station trim and mute is consistent on both
+  elements.
+
+### Notes
+- Both elements' state, the EQ and the trims are covered by the settings
+  backup; the version is 2.2.0 with `?v=35` and cache `freq-v2.2.0`.
+
 ## 2.1.1 — 2026-10-19
 
 A P0 pass on the things that actually stopped the app from working: the fake

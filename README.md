@@ -4,10 +4,10 @@
 
 **Live radio of the world — رادیوی زندهٔ جهان**
 
-Thousands of stations, a world map, car mode, sleep timer, folders, 20 themes,
-full Persian/English UI and an offline-first PWA shell.
+Thousands of stations, a world map, car mode, sleep timer, folders, 50 themes,
+11 player styles, full Persian/English UI and an offline-first PWA shell.
 
-[**Open the app →**](https://pillow1243.github.io/freq/) · [Telegram](https://t.me/MobinA_programs)
+[**Open the app →**](https://pillow1243.github.io/freq/)
 
 ![FREQ social card](assets/og.png)
 
@@ -37,7 +37,7 @@ full Persian/English UI and an offline-first PWA shell.
 
 | Listen | Organise | Interface |
 | --- | --- | --- |
-| 120-station pages with infinite scroll | Favourites (200) and recents (40) | 20 hand-tuned themes, light & dark |
+| 120-station pages with infinite scroll | Favourites (200) and recents (40) | 50 hand-tuned themes, 11 player styles |
 | Name, tag, country, language and HD filters | Six presets (tap to play, hold to save) | Persian / English, Jalali dates |
 | Near-me and random discovery | Folders | Stage view, vinyl, VU meters, tuner |
 | World map (click a dot to play) | Versioned JSON backup/export/import | Car mode, night clock, sleep timer |
@@ -118,7 +118,7 @@ and a small request log. Any static server works — there is no bundler.
 Push to `main`. GitHub Actions runs the quality gate and publishes a staged `_site/`
 folder to Pages. No environment variables or secrets are required.
 
-The service worker uses a versioned cache (`freq-v2.0.1`). Bump `CACHE_VERSION` in
+The service worker uses a versioned cache (`freq-v2.1.0`). Bump `CACHE_VERSION` in
 `sw.js` and the `?v=` query string on assets when changing the shell; the app offers a
 “Refresh” toast when a new worker is waiting.
 

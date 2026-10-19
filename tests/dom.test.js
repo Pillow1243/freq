@@ -19,7 +19,8 @@ test("boot renders the directory, counts and shell", async (t) => {
   });
   assert.equal(doc.getElementById("live-n").textContent, "51,234");
   assert.equal(doc.documentElement.getAttribute("data-theme"), "dark");
-  assert.ok(doc.getElementById("theme-grid").children.length >= 10);
+  assert.equal(doc.getElementById("theme-grid").children.length, 50);
+  assert.equal(doc.getElementById("player-style-grid").children.length, 11);
   assert.equal(doc.querySelectorAll("#countries button").length > 3, true);
   assert.equal(doc.querySelectorAll("#genres button").length, 32);
   assert.equal(doc.querySelectorAll("#sorts button").length, 4);
@@ -106,6 +107,36 @@ test("theme changes persist and update the skin", async (t) => {
   assert.equal(window.localStorage.getItem("freq-theme"), "light");
   const meta = doc.querySelector('meta[name="theme-color"]');
   assert.equal(meta.getAttribute("content"), "#f4f4f5");
+});
+
+test("player appearances are selectable, localized and persistent", async (t) => {
+  const { window, close } = makeDom("");
+  t.after(close);
+  const doc = window.document;
+  await waitFor(function () {
+    return doc.querySelectorAll("#cards .card").length === 3;
+  });
+
+  click(window, doc.getElementById("about-btn"));
+  assert.equal(doc.querySelector(".tg"), null);
+  assert.doesNotMatch(doc.getElementById("about").textContent, /t\.me\/|کانال/);
+  click(window, doc.getElementById("about"));
+
+  click(window, doc.getElementById("settings-btn"));
+  click(window, doc.getElementById("player-style-btn"));
+  assert.equal(doc.getElementById("playerstyles").hidden, false);
+  assert.equal(doc.getElementById("player-style-grid").children.length, 11);
+  click(window, doc.querySelector('[data-style-id="terminal"]'));
+  assert.equal(doc.documentElement.getAttribute("data-player-style"), "terminal");
+  assert.equal(window.localStorage.getItem("freq-player-style"), "terminal");
+  assert.equal(doc.querySelector('[data-style-id="terminal"]').getAttribute("aria-pressed"), "true");
+
+  doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(doc.getElementById("playerstyles").hidden, true);
+  click(window, doc.getElementById("settings-btn"));
+  click(window, doc.querySelector('[data-lang="en"]'));
+  assert.match(doc.getElementById("player-style-btn").textContent, /Terminal/);
+  assert.match(doc.getElementById("player-style-count").textContent, /11/);
 });
 
 test("deep link auto-selects the shared station", async (t) => {

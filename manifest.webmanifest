@@ -1,15 +1,33 @@
 {
-  "name": "FREQ — Mobin.A",
+  "name": "FREQ — رادیوی زندهٔ جهان",
   "short_name": "FREQ",
-  "description": "Live world radio. Made by Mobin.A",
+  "description": "Live radio of the world — thousands of stations, map, car mode, sleep timer, favourites, folders, 20 themes and offline support. رادیوی زندهٔ جهان ساخته شده توسط مبین.آ",
   "id": "./",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
   "background_color": "#09090b",
   "theme_color": "#09090b",
   "lang": "fa",
   "dir": "auto",
+  "categories": [
+    "music",
+    "entertainment",
+    "news"
+  ],
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": [
+      "navigate-existing",
+      "auto"
+    ]
+  },
+  "handle_links": "preferred",
   "icons": [
     {
       "src": "./assets/icon-192.png",
@@ -28,6 +46,59 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "./assets/og.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "FREQ — live radio of the world"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Random station",
+      "short_name": "Random",
+      "description": "Jump into a random live station",
+      "url": "./?random=1",
+      "icons": [
+        {
+          "src": "./assets/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Favorites",
+      "short_name": "Favorites",
+      "description": "Open the stations you saved",
+      "url": "./?view=fav",
+      "icons": [
+        {
+          "src": "./assets/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Persian stations",
+      "short_name": "Persian",
+      "description": "Persian-language radio",
+      "url": "./?tag=persian",
+      "icons": [
+        {
+          "src": "./assets/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

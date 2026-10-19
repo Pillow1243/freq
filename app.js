@@ -1,12 +1,52 @@
 /* FREQ — ساخته شده توسط مبین.آ */
 (() => {
-  const $ = (id) => document.getElementById(id);
+  "use strict";
+
+  const Core = window.FreqCore;
+  if (!Core) {
+    const sub = document.getElementById("load-sub");
+    if (sub) sub.textContent = "FREQ failed to load (core.js).";
+    return;
+  }
+
+  const {
+    safeUrl,
+    isWebUrl,
+    esc,
+    hashHue,
+    fakeFreq,
+    initials,
+    fmtTime,
+    padPresets,
+    hexRgb,
+    toJalali,
+    normalizeStation,
+    normalizeStations,
+    buildStationsQuery,
+    buildTagFallbackQuery,
+    parseFilters,
+    filtersToQuery,
+    formatNumber,
+    dayIndex,
+    topTags,
+    uniqueStations,
+    sameStation,
+  } = Core;
+
+  const $ = function (id) {
+    if (typeof document === "undefined" || !document || !document.getElementById) return null;
+    return document.getElementById(id);
+  };
   const HOSTS = [
     "https://de1.api.radio-browser.info",
     "https://fi1.api.radio-browser.info",
     "https://nl1.api.radio-browser.info",
+    "https://all.api.radio-browser.info",
   ];
   const PAGE = 120;
+  const APP_VERSION = "2.0.1";
+  const API_TTL = 30 * 1000;
+  const DIRSTATS_TTL = 6 * 60 * 60 * 1000;
   const COUNTRIES = [
     { cc: "", fa: "جهان", en: "World" },
     { cc: "IR", fa: "ایران", en: "Iran" },
@@ -106,75 +146,141 @@
     { id: "midnight", fa: "نیمه‌شب", en: "Midnight", light: 0, bg: "#07081a", acc: "#818cf8", ice: "#67e8f9", text: "#eef2ff", muted: "#a5b4fc", ink: "#1e1b4b", panel: "rgba(16,18,48,0.74)", line: "rgba(129,140,248,0.18)", player: "rgba(8,10,28,0.9)", cabinet: "rgba(12,14,36,0.94)", wash: "radial-gradient(ellipse at 50% -10%, rgba(99,102,241,0.22), transparent 42%), #07081a" },
   ];
 
+  function lsGet(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallback : raw;
+    } catch (_) {
+      return fallback;
+    }
+  }
+  function lsSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  function safeParse(key, fallback) {
+    try {
+      const raw = lsGet(key, null);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+  function prefersLight() {
+    try {
+      return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const storedVol = Number(lsGet("freq-vol", "0.85"));
+  const storedGeo = safeParse("freq-geo", null);
   const state = {
-    lang: localStorage.getItem("freq-lang") || "en",
+    lang: lsGet("freq-lang", "") || window.FREQ_DEFAULT_LANG || "en",
     host: HOSTS[0],
     cc: "",
     tag: "",
     langFilter: "",
     q: "",
-    sort: localStorage.getItem("freq-sort") || "clickcount",
+    sort: lsGet("freq-sort", "clickcount"),
     offset: 0,
     hasMore: false,
     loadingMore: false,
+    loadingFirst: true,
     mode: "browse",
     stations: [],
-    favs: safeParse("freq-favs", []),
-    recents: safeParse("freq-recents", []),
-    current: safeParse("freq-last", null),
+    favs: normalizeStations(safeParse("freq-favs", [])),
+    recents: normalizeStations(safeParse("freq-recents", [])),
+    current: normalizeStation(safeParse("freq-last", null)),
     playing: false,
+    failed: false,
     status: "",
     sleepAt: 0,
     sleepMin: 0,
     playGen: 0,
     ignoreErr: false,
     fails: 0,
+    retries: 0,
     listenMs: 0,
     listenTick: 0,
-    prevVol: Number(localStorage.getItem("freq-vol") || "0.85") || 0.85,
+    prevVol: Number.isFinite(storedVol) && storedVol > 0.01 ? storedVol : 0.85,
     stageOpen: false,
     sheet: null,
     mhz: 96,
-    presets: padPresets(safeParse("freq-presets", [])),
+    presets: padPresets(
+      (safeParse("freq-presets", []) || []).map(function (s) {
+        return normalizeStation(s);
+      })
+    ),
     alarm: safeParse("freq-alarm", { on: false, hh: 7, mm: 0, last: "" }),
-    stats: safeParse("freq-stats", { ms: 0, hits: {} }),
+    stats: safeParse("freq-stats", { ms: 0, hits: {}, tags: {}, names: {}, since: 0 }),
     band: "",
-    wave: localStorage.getItem("freq-wave") || "fm",
-    hd: localStorage.getItem("freq-hd") === "1",
-    hidden: safeParse("freq-hidden", []),
+    wave: lsGet("freq-wave", "fm"),
+    hd: lsGet("freq-hd", "0") === "1",
+    hidden: (safeParse("freq-hidden", []) || []).filter(function (x) {
+      return typeof x === "string";
+    }),
     scanning: false,
     scanGen: 0,
+    scanTimer: 0,
     night: false,
-    userVol: Number(localStorage.getItem("freq-vol") || "0.85") || 0.85,
+    userVol: Number.isFinite(storedVol) ? Math.min(1, Math.max(0, storedVol)) : 0.85,
     weather: "",
+    wx: safeParse("freq-wx", null),
     fadeIv: 0,
-    folders: safeParse("freq-folders", []),
+    folders: (safeParse("freq-folders", []) || []).map(function (f) {
+      return {
+        id: String((f && f.id) || "f" + Math.random().toString(36).slice(2)),
+        name: String((f && f.name) || "").slice(0, 24),
+        ids: Array.isArray(f && f.ids) ? f.ids.filter(function (x) { return typeof x === "string"; }) : [],
+      };
+    }),
     folderId: "",
     mapOpen: false,
     carOpen: false,
     mapPts: [],
     filtersOpen: false,
-    theme: localStorage.getItem("freq-theme") || "dark",
+    theme: lsGet("freq-theme", "") || (prefersLight() ? "light" : "dark"),
     forYou: [],
+    forYouTag: "",
     nearList: [],
     homeAll: false,
     fetchGen: 0,
     pool: [],
+    dirStats: safeParse("freq-dirstats", null),
+    countries: [],
+    countryQ: "",
+    searches: (safeParse("freq-searches", []) || [])
+      .filter(function (x) { return typeof x === "string" && x.trim(); })
+      .slice(0, 6),
+    geo:
+      storedGeo && Number.isFinite(Number(storedGeo.lat)) && Number.isFinite(Number(storedGeo.lon))
+        ? { lat: Number(storedGeo.lat), lon: Number(storedGeo.lon), at: Number(storedGeo.at) || 0 }
+        : null,
+    error: false,
+    offline: typeof navigator !== "undefined" && navigator.onLine === false,
+    renderKey: "",
+    renderedIds: [],
+    cacheAt: 0,
+    deepLinkStation: "",
+    deepLinkPending: false,
+    wantsRandom: false,
+    swReg: null,
+    swWaiting: null,
+    swReloading: false,
+    installPrompt: null,
+    installed: false,
+    listAbort: null,
+    watchdog: 0,
+    audioUrl: "",
+    lastStatus: "",
+    statsSaveAt: 0,
   };
-  function padPresets(arr) {
-    const out = Array.isArray(arr) ? arr.slice(0, 6) : [];
-    while (out.length < 6) out.push(null);
-    return out;
-  }
-
-  function safeParse(key, fallback) {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (_) {
-      return fallback;
-    }
-  }
   function dict() {
     const pack = window.I18N || {};
     return pack[state.lang] || pack.fa || { dir: "rtl", htmlLang: "fa", title: "FREQ" };
@@ -185,22 +291,42 @@
   }
   function applyI18n() {
     const d = dict();
-    document.documentElement.lang = d.htmlLang;
-    document.documentElement.dir = d.dir;
-    document.title = d.title;
-    document.querySelectorAll("[data-i18n]").forEach((el) => {
-      if (typeof d[el.dataset.i18n] === "string") el.textContent = d[el.dataset.i18n];
+    document.documentElement.lang = d.htmlLang || "en";
+    document.documentElement.dir = d.dir || "ltr";
+    document.title = d.title || "FREQ";
+    document.querySelectorAll("[data-i18n]").forEach(function (el) {
+      const value = d[el.dataset.i18n];
+      if (typeof value === "string") el.textContent = value;
     });
-    document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
       el.placeholder = d[el.dataset.i18nPlaceholder] || "";
     });
-    document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    document.querySelectorAll("[data-i18n-aria]").forEach(function (el) {
       const label = d[el.dataset.i18nAria];
       if (typeof label === "string") el.setAttribute("aria-label", label);
     });
-    document.querySelectorAll("[data-lang]").forEach((b) => {
-      b.classList.toggle("on", b.dataset.lang === state.lang);
+    document.querySelectorAll("[data-lang]").forEach(function (b) {
+      const on = b.dataset.lang === state.lang;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    function meta(selector, value) {
+      const el = document.querySelector(selector);
+      if (el && value) el.setAttribute("content", value);
+    }
+    if (d.description) meta('meta[name="description"]', d.description);
+    if (d.title) {
+      meta('meta[property="og:title"]', d.title);
+      meta('meta[name="twitter:title"]', d.title);
+    }
+    if (d.description) {
+      meta('meta[property="og:description"]', d.description);
+      meta('meta[name="twitter:description"]', d.description);
+    }
+    if (state.current) {
+      setMediaSession(state.current);
+      setRds(state.current);
+    }
     renderCountries();
     renderGenres();
     renderLangs();
@@ -219,161 +345,367 @@
     syncFiltersBtn();
     syncClearBtn();
     syncDockSleep();
-    if (typeof renderLive === "function") renderLive();
+    syncGeoBtn();
+    syncVersion();
+    renderDirectoryStats();
+    renderSearchHints();
   }
   function setLang(lang) {
     state.lang = lang === "en" ? "en" : "fa";
-    localStorage.setItem("freq-lang", state.lang);
+    lsSet("freq-lang", state.lang);
     applyI18n();
   }
 
-  async function getJSON(path) {
+  const apiCache = new Map();
+  function isAbort(err) {
+    return !!err && (err.name === "AbortError" || /abort/i.test(String(err.message || "")));
+  }
+  function trimApiCache() {
+    while (apiCache.size > 60) apiCache.delete(apiCache.keys().next().value);
+  }
+  function markOnline() {
+    if (state.offline) {
+      state.offline = false;
+      setNetBar(false);
+    }
+  }
+  function markOffline() {
+    if (!state.offline) {
+      state.offline = true;
+      setNetBar(true);
+    }
+  }
+
+  async function getJSON(path, opts) {
+    const options = opts || {};
+    const ttl = typeof options.ttl === "number" ? options.ttl : API_TTL;
+    const cacheable = !options.noCache;
+    if (cacheable) {
+      const hit = apiCache.get(path);
+      if (hit && Date.now() - hit.at < ttl) return hit.data;
+    }
     let last = null;
     const tried = new Set();
     for (const h of [state.host, ...HOSTS]) {
       if (!h || tried.has(h)) continue;
       tried.add(h);
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 8000) : null;
+      let onAbort = null;
+      if (ctrl && options.signal) {
+        if (options.signal.aborted) break;
+        onAbort = function () { ctrl.abort(); };
+        options.signal.addEventListener("abort", onAbort, { once: true });
+      }
+      const timer = ctrl
+        ? setTimeout(function () { ctrl.abort(); }, options.timeout || 9000)
+        : null;
       try {
-        const res = await fetch(h + path, ctrl ? { signal: ctrl.signal } : {});
-        if (!res.ok) throw new Error(String(res.status));
+        const init = ctrl ? { signal: ctrl.signal, credentials: "omit" } : { credentials: "omit" };
+        const res = await fetch(h + path, init);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
         state.host = h;
-        return await res.json();
+        if (cacheable) {
+          apiCache.set(path, { data: data, at: Date.now() });
+          trimApiCache();
+        }
+        markOnline();
+        return data;
       } catch (e) {
+        if (options.signal && options.signal.aborted) throw e;
         last = e;
       } finally {
         if (timer) clearTimeout(timer);
+        if (onAbort && options.signal) options.signal.removeEventListener("abort", onAbort);
       }
     }
+    markOffline();
     throw last || new Error("radio api down");
   }
 
   function saveFavs() {
-    localStorage.setItem("freq-favs", JSON.stringify(state.favs));
+    lsSet("freq-favs", JSON.stringify(state.favs));
   }
   function isFav(uuid) {
-    return state.favs.some((s) => s.stationuuid === uuid);
+    return state.favs.some(function (s) { return s.stationuuid === uuid; });
   }
   function toggleFav(station) {
-    if (!station) return;
-    if (isFav(station.stationuuid)) {
-      state.favs = state.favs.filter((s) => s.stationuuid !== station.stationuuid);
+    const s = normalizeStation(station);
+    if (!s) return;
+    const adding = !isFav(s.stationuuid);
+    if (!adding) {
+      state.favs = state.favs.filter(function (x) { return x.stationuuid !== s.stationuuid; });
     } else {
-      state.favs = [station, ...state.favs].slice(0, 200);
+      state.favs = [s].concat(state.favs).slice(0, 200);
     }
     saveFavs();
     renderPlayer();
-    if (state.mode === "fav") {
-      state.stations = state.favs.slice();
-    }
+    renderPresets();
+    if (state.mode === "fav") state.stations = state.favs.filter(function (x) { return state.hidden.indexOf(x.stationuuid) < 0; });
     renderList();
+    toast(adding ? t("favAdded") : t("favRemoved"));
   }
   function pushRecent(station) {
-    state.recents = [station, ...state.recents.filter((s) => s.stationuuid !== station.stationuuid)].slice(0, 40);
-    localStorage.setItem("freq-recents", JSON.stringify(state.recents));
-    localStorage.setItem("freq-last", JSON.stringify(station));
+    const s = normalizeStation(station);
+    if (!s) return;
+    state.recents = [s]
+      .concat(state.recents.filter(function (x) { return x.stationuuid !== s.stationuuid; }))
+      .slice(0, 40);
+    lsSet("freq-recents", JSON.stringify(state.recents));
+    lsSet("freq-last", JSON.stringify(s));
   }
 
-  async function loadStations(append) {
-    if (append && state.loadingMore) return;
-    if (!append) {
-      state.fetchGen = (state.fetchGen || 0) + 1;
-      state.loadingMore = false;
-    }
-    const fetchGen = state.fetchGen;
-    if (state.mode === "fav" || state.mode === "recent" || state.mode === "folder") {
-      if (state.mode === "folder") {
-        const f = (state.folders || []).find(function (x) { return x.id === state.folderId; });
-        const ids = (f && f.ids) || [];
-        state.stations = ids.map(function (id) {
+  function saveStationCache() {
+    if (!state.stations.length || state.mode !== "browse") return;
+    const payload = {
+      at: Date.now(),
+      mode: state.mode,
+      cc: state.cc,
+      tag: state.tag,
+      q: state.q,
+      language: state.langFilter,
+      stations: state.stations.slice(0, 80),
+    };
+    if (lsSet("freq-cache", JSON.stringify(payload))) state.cacheAt = payload.at;
+  }
+  function readStationCache() {
+    const cached = safeParse("freq-cache", null);
+    if (!cached || !Array.isArray(cached.stations)) return [];
+    return normalizeStations(cached.stations);
+  }
+
+  function applyLocalMode() {
+    const visible = function (s) {
+      return s && state.hidden.indexOf(s.stationuuid) < 0;
+    };
+    if (state.mode === "folder") {
+      const f = (state.folders || []).find(function (x) { return x.id === state.folderId; });
+      const ids = (f && f.ids) || [];
+      state.stations = ids
+        .map(function (id) {
           return state.favs.find(function (s) { return s.stationuuid === id; })
             || state.recents.find(function (s) { return s.stationuuid === id; })
             || null;
-        }).filter(Boolean);
-      } else {
-        state.stations = (state.mode === "fav" ? state.favs : state.recents).slice();
-      }
-      state.hasMore = false;
-      renderCountries();
-      renderGenres();
-      renderFolders();
-      renderList();
+        })
+        .filter(visible);
+    } else {
+      state.stations = (state.mode === "fav" ? state.favs : state.recents).filter(visible);
+    }
+    state.hasMore = false;
+    state.loadingFirst = false;
+    state.loadingMore = false;
+    renderCountries();
+    renderGenres();
+    renderFolders();
+    renderList();
+    hideLoader();
+  }
+
+  async function loadStations(append) {
+    if (append && (state.loadingMore || !state.hasMore)) return;
+    if (!append) {
+      state.fetchGen = (state.fetchGen || 0) + 1;
+      state.loadingMore = false;
+      state.error = false;
+      if (state.listAbort) state.listAbort.abort();
+      state.listAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+    }
+    const fetchGen = state.fetchGen;
+    if (state.mode === "fav" || state.mode === "recent" || state.mode === "folder") {
+      applyLocalMode();
       return;
     }
-    if (!append) state.offset = 0;
+    if (!append) {
+      state.offset = 0;
+      state.loadingFirst = !state.stations.length;
+    }
     state.loadingMore = true;
-    try {
-      const p = new URLSearchParams({
-        hidebroken: "true",
-        is_https: "true",
-        limit: String(PAGE),
-        offset: String(state.offset),
+    renderList();
+
+    const query = buildStationsQuery(
+      {
+        cc: state.cc,
+        tag: state.tag,
+        language: state.langFilter,
+        q: state.q.trim(),
+        wave: state.wave,
+        hd: state.hd,
         order: state.sort,
-        reverse: state.sort === "name" ? "false" : "true",
-      });
-      if (state.cc) p.set("countrycode", state.cc);
-      if (state.tag) p.set("tag", state.tag);
-      if (state.langFilter) p.set("language", state.langFilter);
-      if (state.q.trim()) p.set("name", state.q.trim());
-      if (state.hd) p.set("bitrateMin", "128");
-      if (state.wave === "am" && !state.tag) p.set("tag", "news");
-      if (state.wave === "sw" && !state.tag) p.set("tag", "world");
-      let data = await getJSON(`/json/stations/search?${p}`);
+        offset: state.offset,
+        limit: PAGE,
+      },
+      PAGE
+    );
+    try {
+      const signal = state.listAbort ? state.listAbort.signal : undefined;
+      let data = await getJSON("/json/stations/search?" + query, { ttl: 45 * 1000, signal: signal });
       if (state.q.trim() && (!data || data.length < 12) && !append) {
-        const p2 = new URLSearchParams(p);
-        p2.delete("name");
-        p2.set("tag", state.q.trim());
-        const extra = await getJSON(`/json/stations/search?${p2}`).catch(() => []);
-        const seen = new Set((data || []).map((s) => s.stationuuid));
-        data = (data || []).concat((extra || []).filter((s) => !seen.has(s.stationuuid)));
+        const extra = await getJSON(
+          "/json/stations/search?" + buildTagFallbackQuery(
+            {
+              cc: state.cc,
+              language: state.langFilter,
+              q: state.q.trim(),
+              wave: state.wave,
+              hd: state.hd,
+              order: state.sort,
+              offset: 0,
+              limit: PAGE,
+            },
+            PAGE
+          ),
+          { ttl: 45 * 1000, signal: signal }
+        ).catch(function () { return []; });
+        const seen = new Set((data || []).map(function (s) { return s.stationuuid; }));
+        data = (data || []).concat(
+          (extra || []).filter(function (s) { return !seen.has(s.stationuuid); })
+        );
       }
       if (fetchGen !== state.fetchGen) return;
-      const list = (data || []).filter((s) => {
-        const url = s.url_resolved || s.url || "";
-        if (!url.startsWith("https://")) return false;
-        if ((state.hidden || []).indexOf(s.stationuuid) >= 0) return false;
-        return true;
+      const raw = (data || []).filter(function (s) {
+        return state.hidden.indexOf(s.stationuuid) < 0;
       });
-      state.stations = append ? state.stations.concat(list) : list;
+      const list = normalizeStations(raw);
+      state.stations = append ? uniqueStations(state.stations.concat(list)) : list;
+      state.error = false;
       remember(list);
       state.hasMore = (data || []).length >= PAGE;
       state.offset += PAGE;
+      saveStationCache();
       renderCountries();
       renderGenres();
       renderLangs();
       renderList();
+    } catch (e) {
+      if (isAbort(e) || fetchGen !== state.fetchGen) return;
+      state.error = true;
+      if (!state.stations.length) {
+        const cached = readStationCache();
+        if (cached.length) {
+          state.stations = cached;
+          state.hasMore = false;
+          state.cacheAt = Number(safeParse("freq-cache", {}).at) || 0;
+        }
+      }
+      renderCountries();
+      renderGenres();
+      renderList();
     } finally {
       if (fetchGen === state.fetchGen) {
         state.loadingMore = false;
+        state.loadingFirst = false;
+        hideLoader();
         fillIfShort();
       }
     }
   }
 
+  function countryName(entry) {
+    const curated = COUNTRIES.find(function (c) { return c.cc === entry.cc; });
+    if (curated) return state.lang === "fa" ? curated.fa : curated.en;
+    if (entry.name) {
+      if (state.lang !== "fa") return entry.name;
+      try {
+        const dn = new Intl.DisplayNames(["fa"], { type: "region" });
+        const label = dn.of(entry.cc);
+        if (label) return label;
+      } catch (_) {}
+      return entry.name;
+    }
+    return entry.cc;
+  }
+
   function renderCountries() {
-    const extra = [
-      `<button type="button" class="${state.mode === "fav" ? "on" : ""}" data-mode="fav">${t("fav")}</button>`,
-      `<button type="button" class="${state.mode === "recent" ? "on" : ""}" data-mode="recent">${t("recent")}</button>`,
-      `<button type="button" data-here="1">${t("here")}</button>`,
-    ].join("");
-    $("countries").innerHTML =
+    const box = $("countries");
+    if (!box) return;
+    const extra =
+      `<button type="button" class="${state.mode === "fav" ? "on" : ""}" data-mode="fav" aria-pressed="${state.mode === "fav" ? "true" : "false"}">${esc(t("fav"))} <span class="cc-count">${formatNumber((state.favs || []).length, "en-US")}</span></button>` +
+      `<button type="button" class="${state.mode === "recent" ? "on" : ""}" data-mode="recent" aria-pressed="${state.mode === "recent" ? "true" : "false"}">${esc(t("recent"))} <span class="cc-count">${formatNumber((state.recents || []).length, "en-US")}</span></button>` +
+      `<button type="button" data-here="1">${esc(t("here"))}</button>`;
+    const q = state.countryQ.trim().toLowerCase();
+    const merged = [];
+    const seen = Object.create(null);
+    COUNTRIES.forEach(function (c) {
+      if (!c.cc || seen[c.cc]) return;
+      seen[c.cc] = 1;
+      const hit = (state.countries || []).find(function (x) { return x.cc === c.cc; });
+      merged.push({ cc: c.cc, name: "", count: hit ? hit.count : 0 });
+    });
+    (state.countries || []).forEach(function (c) {
+      if (!c.cc || seen[c.cc]) return;
+      seen[c.cc] = 1;
+      merged.push(c);
+    });
+    const rows = merged.filter(function (entry) {
+      if (!q) return true;
+      return (
+        countryName(entry).toLowerCase().indexOf(q) >= 0 ||
+        entry.cc.toLowerCase().indexOf(q) >= 0
+      );
+    });
+    const shown = q ? rows.slice(0, 200) : rows.slice(0, 64);
+    const worldOn = state.mode === "browse" && !state.cc;
+    let html =
       extra +
-      COUNTRIES.map((c) => {
-        const on = state.mode === "browse" && c.cc === state.cc ? "on" : "";
-        const label = state.lang === "fa" ? c.fa : c.en;
-        return `<button type="button" class="${on}" data-cc="${c.cc}">${label}</button>`;
-      }).join("");
+      `<button type="button" class="${worldOn ? "on" : ""}" data-cc="" aria-pressed="${worldOn ? "true" : "false"}">${esc(
+        state.lang === "fa" ? COUNTRIES[0].fa : COUNTRIES[0].en
+      )}</button>`;
+    html += shown
+      .map(function (entry) {
+        const on = state.mode === "browse" && entry.cc === state.cc;
+        const count = entry.count ? `<span class="cc-count">${formatNumber(entry.count, "en-US")}</span>` : "";
+        const fl = flag(entry.cc);
+        return `<button type="button" class="${on ? "on" : ""}" data-cc="${esc(entry.cc)}" aria-pressed="${on ? "true" : "false"}"><span class="cflag" aria-hidden="true">${fl}</span>${esc(countryName(entry))}${count}</button>`;
+      })
+      .join("");
+    if (!shown.length) {
+      html += `<span class="filter-empty">${esc(t("noResults"))}</span>`;
+    }
+    box.innerHTML = html;
+  }
+
+  async function loadCountries() {
+    const cached = safeParse("freq-countries", null);
+    if (cached && Array.isArray(cached.list) && Date.now() - Number(cached.at || 0) < 7 * 24 * 3600 * 1000) {
+      state.countries = cached.list;
+      renderCountries();
+      return;
+    }
+    try {
+      const data = await getJSON("/json/countries", { ttl: 7 * 24 * 3600 * 1000 });
+      const seen = Object.create(null);
+      const list = (Array.isArray(data) ? data : [])
+        .map(function (row) {
+          const cc = String((row && (row.iso_3166_1 || row.countrycode)) || "").toUpperCase();
+          return {
+            cc: /^[A-Z]{2}$/.test(cc) ? cc : "",
+            name: String((row && row.name) || "").slice(0, 80),
+            count: Number(row && row.stationcount) || 0,
+          };
+        })
+        .filter(function (row) {
+          if (!row.cc || seen[row.cc]) return false;
+          seen[row.cc] = 1;
+          return true;
+        })
+        .sort(function (a, b) { return b.count - a.count; })
+        .slice(0, 240);
+      if (list.length) {
+        state.countries = list;
+        lsSet("freq-countries", JSON.stringify({ at: Date.now(), list: list }));
+        renderCountries();
+      }
+    } catch (_) {}
   }
 
   function renderGenres() {
     const box = $("genres");
     if (!box) return;
     box.innerHTML = GENRES.map((g) => {
-      const on = state.mode === "browse" && g.tag === state.tag ? "on" : "";
+      const on = state.mode === "browse" && g.tag === state.tag;
       const label = state.lang === "fa" ? g.fa : g.en;
       const ico = g.ico ? `<span class="gico" aria-hidden="true">${g.ico}</span>` : "";
-      return `<button type="button" class="gchip ${on}" data-tag="${g.tag}" style="--gh:${g.hue || 220}">${ico}${label}</button>`;
+      return `<button type="button" class="gchip ${on ? "on" : ""}" data-tag="${esc(g.tag)}" aria-pressed="${on ? "true" : "false"}" style="--gh:${g.hue || 220}">${ico}${esc(label)}</button>`;
     }).join("");
     syncClearBtn();
   }
@@ -394,9 +726,8 @@
   function todayPick() {
     const list = state.stations || [];
     if (!list.length) return null;
-    const d = new Date();
-    const key = d.getFullYear() * 372 + d.getMonth() * 31 + d.getDate();
-    return list[key % list.length];
+    const idx = dayIndex(list.length, new Date());
+    return idx >= 0 ? list[idx] : null;
   }
   function todayHeroHtml() {
     const s = todayPick();
@@ -404,7 +735,7 @@
     const fl = flag(s.countrycode);
     const ico = artHtml(s);
     return `<section class="today">
-      <button type="button" class="today-hit" data-play="${s.stationuuid}">
+      <button type="button" class="today-hit" data-play="${esc(s.stationuuid)}" title="${esc(s.name || "")}">
         ${ico}
         <div class="today-txt">
           <div class="today-k">${esc(t("today"))}</div>
@@ -450,9 +781,12 @@
     state.tag = state.tag === tag ? "" : tag || "";
     state.band = state.tag;
     state.homeAll = !!state.tag;
+    if (state.tag) state.folderId = "";
+    closeFilters();
     renderGenres();
     renderBands();
-    loadStations().catch(() => {});
+    loadStations().catch(function () {});
+    syncUrl();
   }
   function clearFilters() {
     state.mode = "browse";
@@ -462,20 +796,25 @@
     state.q = "";
     state.band = "";
     state.folderId = "";
+    state.countryQ = "";
     state.homeAll = false;
     if ($("q")) $("q").value = "";
+    if ($("country-q")) $("country-q").value = "";
     renderGenres();
     renderCountries();
     renderLangs();
     renderBands();
     renderFolders();
-    loadStations().catch(() => {});
+    loadStations().catch(function () {});
+    syncUrl();
   }
   function renderLangs() {
-    $("langs").innerHTML = LANGS.map((g) => {
+    const box = $("langs");
+    if (!box) return;
+    box.innerHTML = LANGS.map(function (g) {
       const on = state.mode === "browse" && g.id === state.langFilter ? "on" : "";
       const label = state.lang === "fa" ? g.fa : g.en;
-      return `<button type="button" class="${on}" data-langf="${g.id}">${label}</button>`;
+      return `<button type="button" class="${on}" data-langf="${esc(g.id)}" aria-pressed="${on ? "true" : "false"}">${esc(label)}</button>`;
     }).join("");
   }
   function flag(cc) {
@@ -487,10 +826,16 @@
     const opts = [
       ["clickcount", "popular"],
       ["votes", "votes"],
+      ["bitrate", "quality"],
       ["name", "az"],
     ];
-    $("sorts").innerHTML = opts
-      .map(([id, key]) => `<button type="button" class="${state.sort === id ? "on" : ""}" data-sort="${id}">${t(key)}</button>`)
+    const box = $("sorts");
+    if (!box) return;
+    box.innerHTML = opts
+      .map(function (pair) {
+        const on = state.sort === pair[0];
+        return `<button type="button" class="${on ? "on" : ""}" data-sort="${pair[0]}" aria-pressed="${on ? "true" : "false"}">${esc(t(pair[1]))}</button>`;
+      })
       .join("");
   }
 
@@ -501,47 +846,53 @@
       .map((m) => {
         const on = state.sleepMin === m ? "on" : "";
         const label = m ? String(m) : t("sleepOff");
-        return `<button type="button" class="${on}" data-sleep="${m}">${label}</button>`;
+        return `<button type="button" class="${on}" data-sleep="${m}" aria-pressed="${on ? "true" : "false"}">${label}</button>`;
       })
       .join("");
   }
 
-  function phHtml(s) {
-    return `<div class="ph" aria-hidden="true"><b>${esc(initials((s && s.name) || "F"))}</b></div>`;
+  function phHtml(station) {
+    return `<span class="ph" aria-hidden="true"><b>${esc(initials((station && station.name) || "F"))}</b></span>`;
   }
-  function artHtml(s) {
-    const ph = phHtml(s);
-    if (s && s.favicon) {
-      return `<img src="${esc(s.favicon)}" alt="" referrerpolicy="no-referrer" onerror="this.hidden=true;if(this.nextElementSibling)this.nextElementSibling.hidden=false;">` +
-        ph.replace('class="ph"', 'class="ph" hidden');
-    }
-    return ph;
+  function artHtml(station) {
+    const ph = phHtml(station);
+    const src = safeUrl(station && station.favicon, "image");
+    if (!src) return ph;
+    return (
+      `<img src="${esc(src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-art="1">` +
+      ph.replace('class="ph"', 'class="ph" hidden')
+    );
   }
   function stationCard(s, rail) {
-    const on = state.current && s.stationuuid === state.current.stationuuid ? "on" : "";
+    const on = sameStation(state.current, s) ? "on" : "";
     const live = on && state.playing ? '<span class="noweq" aria-hidden="true"><i></i><i></i><i></i></span>' : "";
     const ico = artHtml(s);
     const tags = (s.tags || "").split(",").filter(Boolean).slice(0, 2).join(" · ");
     const fl = flag(s.countrycode);
+    const uuid = esc(s.stationuuid);
+    const name = esc(s.name || "—");
+    const hd = s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : "";
     if (rail) {
-      return `<button type="button" class="rail-card ${on}" data-play="${s.stationuuid}">
+      return `<button type="button" class="rail-card ${on}" data-play="${uuid}" title="${name}"${on ? ' aria-current="true"' : ""}>
         <span class="rail-art">${ico}</span>
-        <div class="nm">${esc((s.name || "—").slice(0, 28))}${live}</div>
-        <div class="meta">${esc(s.country || "")}</div>
+        <span class="nm">${name}${live}</span>
+        <span class="meta">${esc(s.country || "")}</span>
       </button>`;
     }
-    return `<div class="card ${on}" data-id="${s.stationuuid}">
+    return `<article class="card ${on}" data-id="${uuid}" title="${name}"${on ? ' aria-current="true"' : ""}>
       <div class="card-art">${ico}</div>
       <div class="card-main">
         <div class="nm-row">
-          <button type="button" class="card-hit" data-play="${s.stationuuid}">
-            <div class="nm">${fl ? fl + " " : ""}${esc(s.name || "—")}${s.bitrate >= 128 ? '<span class="badge-hd">HD</span>' : ""}${live}</div>
+          <button type="button" class="card-hit" data-play="${uuid}">
+            <span class="nm">${fl ? fl + " " : ""}${name}${hd}${live}</span>
           </button>
-          <button type="button" class="info" data-info="${s.stationuuid}">i</button>
+          <button type="button" class="info" data-info="${uuid}" aria-label="${esc(t("info"))}: ${name}">i</button>
         </div>
-        <button type="button" class="card-hit meta" data-play="${s.stationuuid}">${esc(s.country || "")}${s.bitrate ? " · " + s.bitrate + "k" : ""}${tags ? " · " + esc(tags) : ""}</button>
+        <button type="button" class="card-hit meta" data-play="${uuid}">${esc(s.country || "")}${
+      s.bitrate ? " · " + s.bitrate + "k" : ""
+    }${tags ? " · " + esc(tags) : ""}</button>
       </div>
-    </div>`;
+    </article>`;
   }
   function isHome() {
     return (
@@ -557,41 +908,142 @@
     if (!items || !items.length) return "";
     return `<section class="rail">
       <div class="rail-top"><h3>${esc(title)}</h3>
-      <button type="button" data-act="seeall">${t("seeall")}</button></div>
+      <button type="button" data-act="seeall">${esc(t("seeall"))}</button></div>
       <div class="rail-row">${items.slice(0, 10).map(function (s) { return stationCard(s, true); }).join("")}</div>
     </section>`;
   }
+
+  function skeletonHtml(count) {
+    let out = "";
+    for (let i = 0; i < count; i += 1) {
+      out += `<div class="sk-card" aria-hidden="true">
+        <div class="sk-art skeleton"></div>
+        <div class="sk-lines">
+          <div class="sk-line skeleton" style="width:${60 + ((i * 13) % 28)}%"></div>
+          <div class="sk-line short skeleton"></div>
+        </div>
+      </div>`;
+    }
+    return out;
+  }
+
+  function stateBlock(kind) {
+    const active = hasActiveFilters();
+    if (kind === "error") {
+      return `<div class="state">
+        <div class="state-ico" aria-hidden="true">📡</div>
+        <h3>${esc(t("loadError"))}</h3>
+        <p>${esc(t("loadErrorBody"))}</p>
+        <div class="state-actions">
+          <button type="button" class="ghost wide" data-act="retry">${esc(t("retry"))}</button>
+          <button type="button" class="ghost wide" data-act="filters">${esc(t("filters"))}</button>
+        </div>
+      </div>`;
+    }
+    const title = active ? t("emptyFiltered") : t("emptyHome");
+    const actions =
+      `<button type="button" class="ghost wide" data-act="rand">${esc(t("randomPick"))}</button>` +
+      (active ? `<button type="button" class="ghost wide" data-act="clearf">${esc(t("clearFilters"))}</button>` : "");
+    return `<div class="state">
+      <div class="state-ico" aria-hidden="true">📻</div>
+      <h3>${esc(title)}</h3>
+      <p>${esc(t("empty"))}</p>
+      <div class="state-actions">${actions}</div>
+    </div>`;
+  }
+
   function renderList() {
+    const el = $("list");
+    if (!el) return;
     const n = state.stations.length;
+    const home = isHome();
+    const viewKey = [
+      state.lang,
+      state.mode,
+      state.tag,
+      state.cc,
+      state.langFilter,
+      state.q,
+      state.sort,
+      home ? 1 : 0,
+      state.folderId,
+      state.forYouTag,
+    ].join("|");
+    const full = viewKey !== state.renderKey || !$("cards");
+    const keep = full ? 0 : el.scrollTop;
+    const ids = state.stations.map(function (s) { return s.stationuuid; });
     const cfn = dict().count;
-    $("count-line").textContent = typeof cfn === "function" ? cfn(n) : String(n);
-    const rails = isHome()
+    const countLine = $("count-line");
+    if (countLine) {
+      let lineText = typeof cfn === "function" ? cfn(n) : String(n);
+      if (state.loadingMore && !n) lineText = t("loadingStations");
+      else if (state.error && n) lineText += " · " + t("offline");
+      countLine.textContent = lineText;
+    }
+    el.setAttribute("aria-busy", state.loadingMore || state.loadingFirst ? "true" : "false");
+
+    if (!full) {
+      const samePrefix =
+        ids.length >= state.renderedIds.length &&
+        state.renderedIds.every(function (id, i) { return ids[i] === id; });
+      if (samePrefix && ids.length > state.renderedIds.length) {
+        const cardsBox = $("cards");
+        if (cardsBox) {
+          cardsBox.insertAdjacentHTML(
+            "beforeend",
+            state.stations.slice(state.renderedIds.length).map(function (s) { return stationCard(s, false); }).join("")
+          );
+        }
+        state.renderedIds = ids;
+        syncClearBtn();
+        syncChrome();
+        watchTail();
+        return;
+      }
+      if (ids.length === state.renderedIds.length && samePrefix) {
+        markCurrent();
+        syncChrome();
+        watchTail();
+        return;
+      }
+    }
+
+    const rails = home
       ? todayHeroHtml() +
         railBlock(t("continue"), (state.recents || []).slice(0, 10)) +
-        railBlock(t("foryou"), (state.forYou || []).length ? state.forYou : []) +
+        railBlock(t("foryou"), state.forYou || []) +
         railBlock(t("near"), state.nearList || []) +
         mosaicHtml()
       : "";
-    const el = $("list");
-    const keep = el ? el.scrollTop : 0;
-    if (!state.stations.length && !rails) {
-      el.innerHTML = `<div class="card">${t("empty")}</div>`;
-      syncClearBtn();
-      return;
-    }
-    const cards = state.stations.map(function (s) { return stationCard(s, false); }).join("");
-    const all = isHome()
+    const heading = home
       ? `<section class="rail"><div class="rail-top"><h3>${esc(t("trending"))}</h3></div></section>`
       : genreHeroHtml();
-    el.innerHTML = rails + all + cards + '<div id="tail" class="tail"></div>';
+    let inner = "";
+    if (!n && (state.loadingFirst || state.loadingMore)) {
+      inner = skeletonHtml(6);
+    } else if (!n) {
+      inner = stateBlock(state.error ? "error" : "empty");
+    } else {
+      inner = state.stations.map(function (s) { return stationCard(s, false); }).join("");
+      if (state.loadingMore) inner += skeletonHtml(2);
+    }
+    el.innerHTML =
+      rails +
+      heading +
+      `<div id="cards" class="cards">${inner}</div>` +
+      '<div id="tail" class="tail"></div>';
     el.scrollTop = keep;
+    state.renderKey = viewKey;
+    state.renderedIds = ids;
     syncClearBtn();
     syncChrome();
     watchTail();
+    hideExploreTipIfSeen();
   }
+
   let tailObs = null;
   function maybeMore() {
-    if (state.mode !== "browse" || !state.hasMore || state.loadingMore) return;
+    if (state.mode !== "browse" || !state.hasMore || state.loadingMore || state.error) return;
     loadStations(true).catch(function () {});
   }
   function fillIfShort() {
@@ -608,10 +1060,10 @@
     }
     if (!tailObs) {
       tailObs = new IntersectionObserver(
-        function (ents) {
-          if (ents.some(function (e) { return e.isIntersecting; })) maybeMore();
+        function (entries) {
+          if (entries.some(function (e) { return e.isIntersecting; })) maybeMore();
         },
-        { root: root, rootMargin: "320px" }
+        { root: root, rootMargin: "360px" }
       );
     }
     tailObs.disconnect();
@@ -619,76 +1071,46 @@
     fillIfShort();
   }
 
-  function esc(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function hashHue(str) {
-    let h = 0;
-    for (const c of String(str || "F")) h = (h * 33 + c.charCodeAt(0)) % 360;
-    return h;
-  }
-  function fakeFreq(s) {
-    let n = 0;
-    for (const c of (s && (s.stationuuid || s.name)) || "F") n = (n * 31 + c.charCodeAt(0)) >>> 0;
-    return (88 + (n % 199) / 10).toFixed(1) + " MHz";
-  }
-  function initials(name) {
-    const parts = String(name || "F")
-      .replace(/[^A-Za-z0-9\u0600-\u06FF\u0400-\u04FF]+/g, " ")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-    const letters = (parts[0] ? parts[0][0] : "F") + (parts[1] ? parts[1][0] : "");
-    return letters.toUpperCase();
-  }
   function paintPh(el, station) {
     if (!el) return;
     const name = (station && station.name) || "FREQ";
-    const h = hashHue(name);
     el.textContent = initials(name);
-    el.style.background = "";
+    el.style.setProperty("--ph-hue", String(hashHue(name)));
+    el.style.removeProperty("background");
   }
   function setArt(img, ph, station) {
     if (!img || !ph) return;
-    const src = station && station.favicon;
-    if (src) {
-      img.onload = () => {
-        img.hidden = false;
-        ph.hidden = true;
-      };
-      img.onerror = () => {
-        img.hidden = true;
-        ph.hidden = false;
-        paintPh(ph, station);
-      };
-      if (img.src !== src) img.src = src;
-      else {
-        img.hidden = false;
-        ph.hidden = true;
-      }
-    } else {
+    const src = safeUrl(station && station.favicon, "image");
+    if (!src) {
       img.removeAttribute("src");
       img.hidden = true;
       ph.hidden = false;
       paintPh(ph, station);
+      return;
+    }
+    if (img.dataset.src !== src) {
+      img.dataset.src = src;
+      img.hidden = true;
+    }
+    img.onload = function () {
+      img.hidden = false;
+      ph.hidden = true;
+    };
+    img.onerror = function () {
+      img.hidden = true;
+      ph.hidden = false;
+      paintPh(ph, station);
+    };
+    if (img.getAttribute("src") !== src) img.src = src;
+    else if (img.complete && img.naturalWidth > 0) {
+      img.hidden = false;
+      ph.hidden = true;
     }
   }
 
   function listenElapsed() {
     const extra = state.playing && state.listenTick ? Date.now() - state.listenTick : 0;
     return state.listenMs + extra;
-  }
-  function fmtTime(ms) {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    const hh = String(Math.floor(s / 3600)).padStart(2, "0");
-    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
-    const ss = String(s % 60).padStart(2, "0");
-    return `${hh}:${mm}:${ss}`;
   }
   function clockListen(on) {
     if (on) {
@@ -725,34 +1147,52 @@
     const stage = $("stage");
     if (!player) return;
     const fav = !!(s && isFav(s.stationuuid));
-    const connecting = state.status === t("connecting");
-    const failed = state.status === t("failed");
+    const failed = !!state.failed;
+    const connecting = !state.playing && !!state.status && !failed;
 
     player.classList.toggle("on", state.playing);
     player.classList.toggle("connecting", connecting);
     player.classList.toggle("failed", failed);
+    player.classList.toggle("buffering", !!state.buffering);
     if (stage) {
       stage.classList.toggle("open", state.stageOpen);
       stage.classList.toggle("on-air", state.playing);
       stage.setAttribute("aria-hidden", state.stageOpen ? "false" : "true");
+      stage.classList.toggle("buffering", !!state.buffering);
     }
     document.body.classList.toggle("stage-open", state.stageOpen);
-    document.querySelectorAll(".fav-btn").forEach((b) => b.classList.toggle("on", fav));
+    document.querySelectorAll(".fav-btn").forEach(function (b) {
+      b.classList.toggle("on", fav);
+      b.setAttribute("aria-pressed", fav ? "true" : "false");
+    });
 
     const kick = state.status || t("onair");
     setText("p-kick", kick);
     setText("s-kick", kick);
 
     const toggleLabel = state.playing ? t("pause") : t("play");
-    document.querySelectorAll("[data-act='toggle']").forEach((b) => b.setAttribute("aria-label", toggleLabel));
+    document.querySelectorAll("[data-act='toggle']").forEach(function (b) {
+      b.setAttribute("aria-label", toggleLabel);
+    });
 
     const audio = $("audio");
-    const vol = audio ? audio.volume : 0.85;
+    const vol = audio ? audio.volume : state.userVol;
     setText("vol-n", String(Math.round(vol * 100)));
     const muteBtn = $("mute-btn");
     if (muteBtn) muteBtn.classList.toggle("muted", vol < 0.01);
     setText("s-time", fmtTime(listenElapsed()));
     updateSleepLeft();
+
+    const sheetPlay = $("sh-play");
+    if (sheetPlay) {
+      sheetPlay.textContent = state.playing && sameStation(state.current, state.sheet) ? t("pause") : t("play");
+    }
+
+    const announcement = s ? (s.name || "—") + " — " + kick : kick;
+    if (announcement !== state.lastStatus) {
+      state.lastStatus = announcement;
+      setText("p-state", announcement);
+    }
 
     if (!s) {
       setText("p-name", "—");
@@ -768,6 +1208,7 @@
     }
 
     const name = s.name || "—";
+    if (dict().title) document.title = name + " — FREQ";
     setText("p-name", name);
     setText("s-name", name);
     const sub = [flag(s.countrycode), s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : ""]
@@ -775,7 +1216,7 @@
       .join(" · ");
     setText("p-sub", sub);
     setText("s-sub", sub);
-    const mhz = fakeFreq(s);
+    const mhz = fakeFreq(s) + " MHz";
     state.mhz = parseFloat(mhz) || 96;
     setText("p-freq", mhz);
     setText("s-freq", mhz);
@@ -810,7 +1251,8 @@
   function setMediaSession(s) {
     if (!("mediaSession" in navigator) || !s) return;
     try {
-      const art = s.favicon ? [{ src: s.favicon, sizes: "96x96", type: "image/png" }] : [];
+      const src = safeUrl(s.favicon, "image");
+      const art = src ? [{ src: src, sizes: "96x96" }] : [];
       navigator.mediaSession.metadata = new MediaMetadata({
         title: s.name || "FREQ",
         artist: s.country || "FREQ",
@@ -822,71 +1264,144 @@
   }
 
   function markCurrent() {
-    document.querySelectorAll(".card[data-id]").forEach((el) => {
-      el.classList.toggle("on", state.current && el.dataset.id === state.current.stationuuid);
+    document.querySelectorAll(".card[data-id]").forEach(function (el) {
+      const on = !!(state.current && el.dataset.id === state.current.stationuuid);
+      el.classList.toggle("on", on);
+      if (on) el.setAttribute("aria-current", "true");
+      else el.removeAttribute("aria-current");
     });
   }
 
-  function play(station) {
-    if (!station) return;
+  function clearWatchdog() {
+    if (state.watchdog) {
+      clearTimeout(state.watchdog);
+      state.watchdog = 0;
+    }
+  }
+
+  function onAudioStarted(gen) {
+    if (gen && gen !== state.playGen) return;
+    state.ignoreErr = false;
+    state.fails = 0;
+    state.playing = true;
+    state.failed = false;
+    state.buffering = false;
+    state.status = "";
+    clearWatchdog();
+    if (state.scanning) {
+      state.scanning = false;
+      toast(t("tuned"));
+    }
+    if (state.alarmFade) {
+      state.alarmFade = false;
+      fadeVol(0.04, state.userVol || 0.85, 8000);
+    }
+    clockListen(true);
+    renderPlayer();
+    tickStand();
+    setMediaSession(state.current);
+  }
+
+  function tryFallback(gen) {
     const audio = $("audio");
+    const s = state.current;
+    if (!audio || !s) return false;
+    const primary = s.url_resolved || s.url;
+    const fallback = s.url && s.url !== primary ? s.url : "";
+    if (state.retries > 0 || !fallback) return false;
+    state.retries += 1;
+    state.audioUrl = fallback;
+    state.status = t("reconnecting");
+    state.buffering = true;
+    renderPlayer();
+    try {
+      audio.src = fallback;
+      audio.load();
+    } catch (_) {}
+    audio
+      .play()
+      .then(function () { onAudioStarted(gen); })
+      .catch(function () { failSkip(); });
+    return true;
+  }
+
+  function play(station) {
+    const s = normalizeStation(station) || (station && station.url_resolved ? station : null);
+    if (!s) return;
+    const audio = $("audio");
+    if (!audio) return;
+    clearWatchdog();
     state.playGen = (state.playGen || 0) + 1;
     const gen = state.playGen;
     state.ignoreErr = true;
-    state.current = station;
+    state.current = s;
     state.status = t("connecting");
     state.playing = false;
+    state.failed = false;
+    state.buffering = true;
+    state.retries = 0;
     state.listenMs = 0;
     state.listenTick = 0;
-    remember(station);
-    pushRecent(station);
-    bumpStats(station);
+    remember(s);
+    pushRecent(s);
+    bumpStats(s);
     audio.pause();
-    try { audio.removeAttribute("src"); } catch (_) {}
-    audio.src = station.url_resolved || station.url || "";
-    try { audio.load(); } catch (_) {}
-    getJSON(`/json/url/${station.stationuuid}`).catch(() => {});
+    try {
+      audio.src = s.url_resolved || s.url;
+      state.audioUrl = audio.src;
+      audio.load();
+    } catch (_) {
+      state.audioUrl = s.url_resolved || s.url;
+    }
+    getJSON("/json/url/" + encodeURIComponent(s.stationuuid), { noCache: true }).catch(function () {});
     renderPlayer();
     markCurrent();
-    if (typeof bumpPresence === "function") bumpPresence();
-    const go = audio.play();
-    if (go && go.then) {
-      go.then(() => {
-        if (gen !== state.playGen) return;
-        state.ignoreErr = false;
-        state.fails = 0;
-        state.playing = true;
-        state.status = "";
-        if (state.scanning) {
-          state.scanning = false;
-          toast(t("tuned"));
-        }
-        if (state.alarmFade) {
-          state.alarmFade = false;
-          fadeVol(0.04, state.userVol || 0.85, 8000);
-        }
-        clockListen(true);
-        renderPlayer();
-        tickStand();
-      }).catch(() => {
-        if (gen !== state.playGen) return;
-        state.ignoreErr = false;
-        failSkip();
-      });
+    if (navigator.mediaSession && navigator.mediaSession.playbackState) {
+      try { navigator.mediaSession.playbackState = "playing"; } catch (_) {}
     }
-    setTimeout(() => {
+    const go = audio.play();
+    const failed = function (err) {
+      if (gen !== state.playGen) return;
+      if (err && err.name === "NotAllowedError") {
+        state.ignoreErr = false;
+        state.playing = false;
+        state.buffering = false;
+        state.status = t("tapPlay");
+        renderPlayer();
+        return;
+      }
+      if (tryFallback(gen)) return;
+      failSkip();
+    };
+    if (go && go.then) go.then(function () { onAudioStarted(gen); }).catch(failed);
+    else setTimeout(function () { onAudioStarted(gen); }, 250);
+    state.watchdog = setTimeout(function () {
+      if (gen !== state.playGen || state.playing) return;
+      if (tryFallback(gen)) return;
+      state.ignoreErr = false;
+      failSkip();
+    }, 15000);
+    setTimeout(function () {
       if (gen === state.playGen) state.ignoreErr = false;
-    }, 1600);
+    }, 1800);
   }
 
   function failSkip() {
-    if (state.scanning) return;
-    state.fails = (state.fails || 0) + 1;
+    clearWatchdog();
     state.playing = false;
+    state.failed = true;
+    state.buffering = false;
     clockListen(false);
     state.status = t("failed");
     renderPlayer();
-    if (state.fails < 3) setTimeout(() => playRel(1), 700);
+    setMediaSession(state.current);
+    if (state.scanning) return;
+    state.fails = (state.fails || 0) + 1;
+    if (state.fails < 3) {
+      setTimeout(function () {
+        if (!state.playing) playRel(1);
+      }, 900);
+    }
   }
 
   function playRel(dir) {
@@ -896,18 +1411,23 @@
       play(list[0]);
       return;
     }
-    const i = list.findIndex((s) => s.stationuuid === state.current.stationuuid);
+    const i = list.findIndex(function (s) { return s.stationuuid === state.current.stationuuid; });
     const n = (i < 0 ? 0 : i + dir + list.length) % list.length;
     play(list[n]);
   }
 
   function playRandom() {
     const list = state.stations;
-    if (!list.length) return;
+    if (!list.length) {
+      toast(t("empty"));
+      return;
+    }
     let pick = list[Math.floor(Math.random() * list.length)];
     if (state.current && list.length > 1) {
-      while (pick.stationuuid === state.current.stationuuid) {
+      let guard = 0;
+      while (pick.stationuuid === state.current.stationuuid && guard < 12) {
         pick = list[Math.floor(Math.random() * list.length)];
+        guard += 1;
       }
     }
     play(pick);
@@ -915,47 +1435,53 @@
 
   function toggle() {
     const audio = $("audio");
+    if (!audio) return;
     if (!state.current) {
       if (state.stations[0]) play(state.stations[0]);
+      else toast(t("empty"));
       return;
     }
     if (state.playing) {
       audio.pause();
       state.playing = false;
+      state.buffering = false;
       clockListen(false);
-    } else {
-      audio
-        .play()
-        .then(() => {
-          state.playing = true;
-          state.status = "";
-          clockListen(true);
-          renderPlayer();
-        })
-        .catch(() => failSkip());
+      renderPlayer();
+      saveStats(true);
+      return;
     }
+    if (state.status === t("failed") || !state.audioUrl) {
+      play(state.current);
+      return;
+    }
+    state.buffering = true;
+    state.status = t("connecting");
     renderPlayer();
+    audio
+      .play()
+      .then(function () { onAudioStarted(state.playGen); })
+      .catch(function () { failSkip(); });
   }
 
   function setVol(v, silent) {
     v = Math.min(1, Math.max(0, Number(v) || 0));
-    if ($("audio")) $("audio").volume = v;
+    const audio = $("audio");
+    if (audio) audio.volume = v;
     document.querySelectorAll("[data-vol]").forEach(function (el) {
       el.value = String(v);
     });
     if (v > 0.01) state.prevVol = v;
     if (!silent) {
       state.userVol = v;
-      try {
-        localStorage.setItem("freq-vol", String(v));
-      } catch (_) {}
+      lsSet("freq-vol", String(v));
     }
     setText("vol-n", String(Math.round(v * 100)));
     const muteBtn = $("mute-btn");
     if (muteBtn) muteBtn.classList.toggle("muted", v < 0.01);
   }
   function toggleMute() {
-    const cur = $("audio").volume;
+    const audio = $("audio");
+    const cur = audio ? audio.volume : state.userVol;
     if (cur < 0.01) setVol(state.prevVol || 0.85);
     else setVol(0);
   }
@@ -977,17 +1503,100 @@
     if (!b) return;
     b.textContent = state.sleepMin ? t("sleep") + " " + state.sleepMin : t("sleep");
     b.classList.toggle("on", !!state.sleepMin);
+    b.setAttribute("aria-pressed", state.sleepMin ? "true" : "false");
   }
 
   const layers = [];
+  const focusStack = [];
   let ignorePop = 0;
+  const LAYER_SELECTOR = {
+    stage: "#stage .cabinet",
+    sheet: "#sheet",
+    filters: "#filters .drawer-card",
+    settings: "#settings .drawer-card",
+    about: "#about .about-card",
+    help: "#help .about-card",
+    stand: "#stand",
+    map: "#map",
+    car: "#car",
+    themes: "#themes .themes-card",
+    wrap: "#wrap .themes-card",
+  };
+
+  function layerContainer(id) {
+    const selector = LAYER_SELECTOR[id];
+    return selector ? document.querySelector(selector) : null;
+  }
+  function focusablesIn(root) {
+    if (!root) return [];
+    return Array.prototype.filter.call(
+      root.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ),
+      function (el) {
+        return el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement;
+      }
+    );
+  }
+  function focusFirstIn(id) {
+    const box = layerContainer(id);
+    if (!box) return;
+    if (!box.hasAttribute("tabindex")) box.setAttribute("tabindex", "-1");
+    try {
+      box.focus({ preventScroll: true });
+    } catch (_) {
+      box.focus();
+    }
+  }
   function pushLayer(id) {
     if (layers[layers.length - 1] === id) return;
     layers.push(id);
+    if (!focusStack.some(function (f) { return f.id === id; })) {
+      focusStack.push({ id: id, prev: document.activeElement });
+    }
+    setTimeout(function () {
+      if (layers[layers.length - 1] === id) focusFirstIn(id);
+    }, 30);
   }
   function dropLayer(id) {
     const i = layers.lastIndexOf(id);
     if (i >= 0) layers.splice(i, 1);
+    const box = layerContainer(id);
+    const index = focusStack.map(function (f) { return f.id; }).lastIndexOf(id);
+    if (index >= 0) {
+      const rec = focusStack.splice(index, 1)[0];
+      const active = document.activeElement;
+      if (!active || active === document.body || (box && box.contains(active))) {
+        if (rec && rec.prev && rec.prev.isConnected && rec.prev.focus) {
+          try {
+            rec.prev.focus({ preventScroll: true });
+          } catch (_) {}
+        }
+      }
+    }
+  }
+  function trapTab(e) {
+    if (e.key !== "Tab" || !layers.length) return;
+    const id = layers[layers.length - 1];
+    const box = layerContainer(id);
+    if (!box) return;
+    const items = focusablesIn(box);
+    if (!items.length) {
+      e.preventDefault();
+      box.focus();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first || document.activeElement === box || !box.contains(document.activeElement)) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (document.activeElement === last || document.activeElement === box || !box.contains(document.activeElement)) {
+      e.preventDefault();
+      first.focus();
+    }
   }
   function consumeBack() {
     const id = layers[layers.length - 1];
@@ -1030,9 +1639,10 @@
     window.AndroidBack = consumeBack;
     window.onBackPressed = consumeBack;
     try {
-      if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
-        Capacitor.Plugins.App.addListener("backButton", () => {
-          if (!consumeBack() && Capacitor.Plugins.App.exitApp) Capacitor.Plugins.App.exitApp();
+      const cap = window.Capacitor;
+      if (cap && cap.Plugins && cap.Plugins.App) {
+        cap.Plugins.App.addListener("backButton", function () {
+          if (!consumeBack() && cap.Plugins.App.exitApp) cap.Plugins.App.exitApp();
         });
       }
     } catch (_) {}
@@ -1047,6 +1657,7 @@
     }
     document.body.classList.add("stage-open");
     renderPlayer();
+    setTimeout(resizeFx, 80);
     if (!was) pushLayer("stage");
   }
   function closeStage(fromPop) {
@@ -1086,8 +1697,15 @@
     state.cc = cc;
     state.homeAll = true;
     state.q = "";
+    state.tag = "";
+    state.band = "";
     if ($("q")) $("q").value = "";
+    renderCountries();
+    renderGenres();
+    renderBands();
+    closeFilters();
     loadStations().catch(function () {});
+    syncUrl();
   }
   function renderBands() {
     const box = $("bands");
@@ -1095,7 +1713,10 @@
     box.innerHTML = BANDS.map(function (g) {
       const on = state.mode === "browse" && g.tag === state.band ? "on" : "";
       const label = state.lang === "fa" ? g.fa : g.en;
-      return '<button type="button" class="' + on + '" data-band="' + g.tag + '">' + label + "</button>";
+      return (
+        '<button type="button" class="' + on + '" data-band="' + esc(g.tag) + '" aria-pressed="' +
+        (on ? "true" : "false") + '">' + esc(label) + "</button>"
+      );
     }).join("");
   }
   function renderPresets() {
@@ -1103,7 +1724,7 @@
       .map(function (s, i) {
         const on = s && state.current && s.stationuuid === state.current.stationuuid ? "on" : "";
         const has = s ? "has" : "";
-        const name = s ? (s.name || "P" + (i + 1)).slice(0, 10) : "P" + (i + 1);
+        const name = s ? (s.name || "P" + (i + 1)).slice(0, 12) : "P" + (i + 1);
         return (
           '<button type="button" class="' +
           on +
@@ -1113,6 +1734,9 @@
           i +
           '" title="' +
           esc(s ? s.name : t("emptyPreset")) +
+          '" aria-label="P' +
+          (i + 1) +
+          (s ? ": " + esc(s.name) : "") +
           '">' +
           (i + 1) +
           (s ? " · " + esc(name) : "") +
@@ -1127,10 +1751,8 @@
   }
   function savePreset(i) {
     if (!state.current) return;
-    state.presets[i] = state.current;
-    try {
-      localStorage.setItem("freq-presets", JSON.stringify(state.presets));
-    } catch (_) {}
+    state.presets[i] = normalizeStation(state.current) || state.current;
+    lsSet("freq-presets", JSON.stringify(state.presets));
     renderPresets();
     toast(t("saved") + " P" + (i + 1));
   }
@@ -1139,54 +1761,33 @@
     if (s) play(s);
     else toast(t("emptyPreset"));
   }
-  let noise = { ctx: null, src: null };
-  function startStatic() {}
-  function stopStatic() {
-    try {
-      if (noise.src) noise.src.stop();
-    } catch (_) {}
-    try {
-      if (noise.ctx) noise.ctx.close();
-    } catch (_) {}
-    noise = { ctx: null, src: null };
-  }
-  function toast(msg) {
+  function toast(msg, opts) {
     const el = $("toast");
     if (!el) return;
-    el.textContent = msg;
+    const msgEl = $("toast-msg") || el;
+    const act = $("toast-act");
+    const options = opts || {};
+    msgEl.textContent = msg;
+    if (act) {
+      if (options.action) {
+        act.hidden = false;
+        act.textContent = options.action;
+        act.onclick = function () {
+          el.hidden = true;
+          act.hidden = true;
+          if (typeof options.onAction === "function") options.onAction();
+        };
+      } else {
+        act.hidden = true;
+        act.onclick = null;
+      }
+    }
     el.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(function () {
       el.hidden = true;
-    }, 1800);
-  }
-  function toJalali(d) {
-    const gy = d.getFullYear();
-    const gm = d.getMonth() + 1;
-    const gd = d.getDate();
-    const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-    let jy = gy <= 1600 ? 0 : 979;
-    let gy2 = gy <= 1600 ? gy - 621 : gy - 1600;
-    const gy2e = gm > 2 ? gy2 + 1 : gy2;
-    let days =
-      365 * gy2 +
-      Math.floor((gy2e + 3) / 4) -
-      Math.floor((gy2e + 99) / 100) +
-      Math.floor((gy2e + 399) / 400) -
-      80 +
-      gd +
-      g_d_m[gm - 1];
-    jy += 33 * Math.floor(days / 12053);
-    days %= 12053;
-    jy += 4 * Math.floor(days / 1461);
-    days %= 1461;
-    if (days > 365) {
-      jy += Math.floor((days - 1) / 365);
-      days = (days - 1) % 365;
-    }
-    const jm = days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
-    const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
-    return jy + "/" + String(jm).padStart(2, "0") + "/" + String(jd).padStart(2, "0");
+      if (act) act.hidden = true;
+    }, options.duration || 2200);
   }
   function tickClock() {
     const now = new Date();
@@ -1207,11 +1808,27 @@
     if (tuned) tuned.classList.toggle("on", !!state.playing && !state.status);
   }
   function bumpStats(station) {
+    if (!station || !station.stationuuid) return;
     if (!state.stats.hits) state.stats.hits = {};
-    if (station && station.stationuuid) state.stats.hits[station.stationuuid] = 1;
-    try {
-      localStorage.setItem("freq-stats", JSON.stringify(state.stats));
-    } catch (_) {}
+    if (!state.stats.tags) state.stats.tags = {};
+    if (!state.stats.names) state.stats.names = {};
+    state.stats.hits[station.stationuuid] = (state.stats.hits[station.stationuuid] || 0) + 1;
+    state.stats.names[station.stationuuid] = station.name || "";
+    String(station.tags || "")
+      .split(",")
+      .forEach(function (raw) {
+        const tag = raw.trim().toLowerCase();
+        if (!tag || tag.length > 32) return;
+        state.stats.tags[tag] = (state.stats.tags[tag] || 0) + 1;
+      });
+    if (!state.stats.since) state.stats.since = Date.now();
+    saveStats(true);
+  }
+  function saveStats(force) {
+    const now = Date.now();
+    if (!force && now - (state.statsSaveAt || 0) < 10000) return;
+    state.statsSaveAt = now;
+    lsSet("freq-stats", JSON.stringify(state.stats));
   }
   function flushListen() {
     if (state.playing && state.listenTick) {
@@ -1260,44 +1877,89 @@
   }
   function stationUrl(s) {
     const base = location.origin + location.pathname.replace(/index\.html$/, "");
+    if (!s || !s.stationuuid) return base;
     return base + "?s=" + encodeURIComponent(s.stationuuid);
   }
-  function shareStation(s) {
+  async function copyText(value) {
+    if (!value) return false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.insetInlineStart = "-9999px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand && document.execCommand("copy");
+      ta.remove();
+      return !!ok;
+    } catch (_) {
+      return false;
+    }
+  }
+  async function copyStation(s) {
+    if (!s) return;
+    const url = stationUrl(s);
+    const ok = await copyText(url);
+    toast(ok ? t("copied") : url, { duration: ok ? 2200 : 6000 });
+  }
+  async function shareStation(s) {
     if (!s) return;
     const url = stationUrl(s);
     const title = (s.name || "FREQ") + " — FREQ";
     if (navigator.share) {
-      navigator.share({ title: title, text: title, url: url }).catch(function () {});
-    } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function () {
-        toast(t("shared"));
-      });
-    } else {
-      toast(url);
+      try {
+        await navigator.share({ title: title, text: title, url: url });
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+      }
     }
+    const ok = await copyText(url);
+    toast(ok ? t("shared") : url, { duration: ok ? 2200 : 6000 });
   }
   function voteStation(s) {
     if (!s) return;
-    getJSON("/json/vote/" + s.stationuuid)
-      .then(function () {
-        toast(t("voted"));
-      })
-      .catch(function () {
-        toast(t("voted"));
-      });
+    getJSON("/json/vote/" + encodeURIComponent(s.stationuuid), { noCache: true })
+      .then(function () { toast(t("voted")); })
+      .catch(function () { toast(t("voted")); });
   }
   function exportFavs() {
-    const blob = new Blob(
-      [JSON.stringify({ favs: state.favs, presets: state.presets, folders: state.folders, v: 2 }, null, 2)],
-      { type: "application/json" }
-    );
+    const payload = {
+      app: "FREQ",
+      v: 3,
+      exportedAt: new Date().toISOString(),
+      favs: state.favs,
+      presets: state.presets.filter(Boolean),
+      folders: state.folders,
+      recents: state.recents.slice(0, 40),
+      stats: state.stats,
+      settings: {
+        theme: state.theme,
+        lang: state.lang,
+        sort: state.sort,
+        wave: state.wave,
+        hd: state.hd,
+      },
+    };
+    if (typeof URL === "undefined" || !URL.createObjectURL) return;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "freq-favs.json";
+    a.download = "freq-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+    a.rel = "noopener";
+    document.body.appendChild(a);
     a.click();
-    setTimeout(function () {
-      URL.revokeObjectURL(a.href);
-    }, 500);
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 800);
+    toast(t("saved"));
   }
   function importFavs(file) {
     if (!file) return;
@@ -1306,24 +1968,85 @@
       try {
         const data = JSON.parse(String(reader.result || "{}"));
         if (Array.isArray(data.favs)) {
-          state.favs = data.favs.slice(0, 200);
+          state.favs = uniqueStations(normalizeStations(data.favs).concat(state.favs)).slice(0, 200);
           saveFavs();
         }
         if (Array.isArray(data.presets)) {
-          state.presets = padPresets(data.presets);
-          localStorage.setItem("freq-presets", JSON.stringify(state.presets));
+          state.presets = padPresets(
+            data.presets.map(function (s) { return normalizeStation(s); })
+          );
+          lsSet("freq-presets", JSON.stringify(state.presets));
         }
         if (Array.isArray(data.folders)) {
-          state.folders = data.folders;
+          state.folders = data.folders
+            .map(function (f) {
+              return {
+                id: String((f && f.id) || "f" + Math.random().toString(36).slice(2)),
+                name: String((f && f.name) || "").slice(0, 24),
+                ids: Array.isArray(f && f.ids) ? f.ids.filter(function (x) { return typeof x === "string"; }) : [],
+              };
+            })
+            .slice(-20);
           saveFolders();
-          renderFolders();
+        }
+        if (Array.isArray(data.recents)) {
+          state.recents = uniqueStations(normalizeStations(data.recents).concat(state.recents)).slice(0, 40);
+          lsSet("freq-recents", JSON.stringify(state.recents));
+        }
+        if (data.stats && typeof data.stats.ms === "number") {
+          state.stats = {
+            ms: Math.max(0, data.stats.ms),
+            hits: data.stats.hits && typeof data.stats.hits === "object" ? data.stats.hits : {},
+            tags: data.stats.tags && typeof data.stats.tags === "object" ? data.stats.tags : {},
+            names: data.stats.names && typeof data.stats.names === "object" ? data.stats.names : {},
+            since: Number(data.stats.since) || 0,
+          };
+          saveStats(true);
+        }
+        if (data.settings) {
+          if (data.settings.theme) constThemeExists(data.settings.theme);
+          if (data.settings.sort) state.sort = String(data.settings.sort);
+          if (data.settings.wave) state.wave = String(data.settings.wave);
+          if (typeof data.settings.hd === "boolean") state.hd = data.settings.hd;
+          if (data.settings.lang === "fa" || data.settings.lang === "en") {
+            state.lang = data.settings.lang;
+            lsSet("freq-lang", state.lang);
+            applyI18n();
+          }
         }
         renderPresets();
+        renderFolders();
+        renderLangs();
+        renderSorts();
+        syncHdBtn();
+        applyTheme();
+        if (state.mode === "fav") state.stations = state.favs.slice();
         renderList();
-        toast(t("fav"));
-      } catch (_) {}
+        toast(t("saved"));
+      } catch (_) {
+        toast(t("badLink"));
+      }
     };
     reader.readAsText(file);
+  }
+  function constThemeExists(id) {
+    const th = THEMES.find(function (x) { return x.id === id; });
+    if (th) {
+      state.theme = th.id;
+      lsSet("freq-theme", th.id);
+    }
+  }
+  function resetAllData() {
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (key && key.indexOf("freq-") === 0) keys.push(key);
+      }
+      keys.forEach(function (key) { localStorage.removeItem(key); });
+    } catch (_) {}
+    toast(t("resetDone"));
+    setTimeout(function () { location.reload(); }, 500);
   }
   function openAbout() {
     const el = $("about");
@@ -1354,16 +2077,20 @@
     setText("s-rds", line);
   }
   async function applyDeepLink() {
-    const sid = new URLSearchParams(location.search).get("s");
-    if (!sid) return;
+    if (!state.deepLinkStation) return;
+    const sid = state.deepLinkStation;
     let s = findStation(sid);
     if (!s) {
       try {
-        const data = await getJSON("/json/stations/byuuid/" + encodeURIComponent(sid));
-        if (data && data[0]) s = data[0];
+        const data = await getJSON("/json/stations/byuuid/" + encodeURIComponent(sid), { ttl: 10 * 60 * 1000 });
+        if (Array.isArray(data) && data[0]) s = normalizeStation(data[0]);
       } catch (_) {}
     }
-    if (s) play(s);
+    if (!s) {
+      toast(t("notFound"));
+      return;
+    }
+    play(s);
   }
 
 
@@ -1372,65 +2099,87 @@
     if (!box) return;
     box.innerHTML = ["am", "fm", "sw"]
       .map(function (id) {
-        const on = state.wave === id ? "on" : "";
-        return '<button type="button" class="' + on + '" data-wave="' + id + '">' + t(id) + "</button>";
+        const on = state.wave === id;
+        return (
+          '<button type="button" class="' + (on ? "on" : "") + '" data-wave="' + id +
+          '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(t(id)) + "</button>"
+        );
       })
       .join("");
   }
   function setWave(id) {
     state.wave = id === "am" || id === "sw" ? id : "fm";
-    try {
-      localStorage.setItem("freq-wave", state.wave);
-    } catch (_) {}
+    lsSet("freq-wave", state.wave);
     renderWaves();
     if (state.mode === "browse") loadStations().catch(function () {});
-    tickClick();
+    syncUrl();
   }
   function syncHdBtn() {
     const b = $("hd-btn");
-    if (b) b.classList.toggle("on", !!state.hd);
+    if (!b) return;
+    b.classList.toggle("on", !!state.hd);
+    b.setAttribute("aria-pressed", state.hd ? "true" : "false");
   }
   function toggleHd() {
     state.hd = !state.hd;
-    try {
-      localStorage.setItem("freq-hd", state.hd ? "1" : "0");
-    } catch (_) {}
+    lsSet("freq-hd", state.hd ? "1" : "0");
     syncHdBtn();
     if (state.mode === "browse") loadStations().catch(function () {});
   }
   function hideStation(s) {
-    if (!s) return;
-    if ((state.hidden || []).indexOf(s.stationuuid) < 0) state.hidden.push(s.stationuuid);
-    try {
-      localStorage.setItem("freq-hidden", JSON.stringify(state.hidden));
-    } catch (_) {}
-    state.stations = state.stations.filter(function (x) {
-      return x.stationuuid !== s.stationuuid;
-    });
+    const station = normalizeStation(s);
+    if (!station) return;
+    if (state.hidden.indexOf(station.stationuuid) < 0) state.hidden.push(station.stationuuid);
+    state.hidden = state.hidden.slice(-500);
+    lsSet("freq-hidden", JSON.stringify(state.hidden));
+    state.stations = state.stations.filter(function (x) { return x.stationuuid !== station.stationuuid; });
     renderList();
-    toast(t("hidden"));
     closeSheet();
+    toast(t("hidden"), {
+      action: t("undo"),
+      duration: 5200,
+      onAction: function () {
+        state.hidden = state.hidden.filter(function (id) { return id !== station.stationuuid; });
+        lsSet("freq-hidden", JSON.stringify(state.hidden));
+        if (state.mode === "fav" || state.mode === "recent" || state.mode === "folder") applyLocalMode();
+        else loadStations().catch(function () {});
+      },
+    });
+  }
+  function stopScan() {
+    state.scanning = false;
+    state.scanGen = (state.scanGen || 0) + 1;
+    if (state.scanTimer) {
+      clearTimeout(state.scanTimer);
+      state.scanTimer = 0;
+    }
   }
   function startScan() {
     if (state.scanning) {
-      state.scanning = false;
+      stopScan();
+      toast(t("sleepOff"));
       return;
     }
-    if (!state.stations.length) return;
+    if (!state.stations.length) {
+      toast(t("empty"));
+      return;
+    }
+    stopScan();
     state.scanning = true;
-    state.scanGen = (state.scanGen || 0) + 1;
     const gen = state.scanGen;
-    toast(t("scanning"));
+    toast(t("scanning"), { duration: 1800 });
     function step() {
       if (!state.scanning || gen !== state.scanGen) return;
       playRel(1);
-      setTimeout(function () {
+      state.scanTimer = setTimeout(function () {
         if (!state.scanning || gen !== state.scanGen) return;
-        if (state.playing && !state.status) {
-          state.scanning = false;
+        if (state.playing) {
+          stopScan();
           toast(t("tuned"));
-        } else step();
-      }, 2600);
+        } else {
+          step();
+        }
+      }, 2800);
     }
     step();
   }
@@ -1456,9 +2205,16 @@
       state.sleepAt = 0;
       state.sleepMin = 0;
       renderSleep();
+      syncDockSleep();
       const audio = $("audio");
       if (audio) audio.pause();
+      state.playing = false;
+      state.buffering = false;
+      state.status = "";
       setVol(state.userVol || 0.85, true);
+      renderPlayer();
+      saveStats(true);
+      toast(t("sleepOff"));
       return;
     }
     if (left < 45000) {
@@ -1477,6 +2233,7 @@
     syncAlarmUi();
     const audio = $("audio");
     if (audio) audio.pause();
+    closeStand();
     toast(t("snooze"));
   }
   function openStand() {
@@ -1509,71 +2266,87 @@
       "stand-date",
       state.lang === "fa" ? toJalali(now) : now.toISOString().slice(0, 10)
     );
+    state.weather = weatherText();
     setText("stand-wx", state.weather || "");
     setText("stand-st", (state.current && state.current.name) || "FREQ");
     setText("s-wx", state.weather || "");
   }
-  function tickClick() {}
-  async function loadWeather() {
-    let lat = 50.1109;
-    let lon = 8.6821;
-    const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toLowerCase();
-    if (tz.indexOf("tehran") >= 0) {
-      lat = 35.6892;
-      lon = 51.389;
+  function weatherSky(code) {
+    const fa = state.lang === "fa";
+    if (code === 0) return fa ? "آفتابی" : "clear";
+    if (code < 4) return fa ? "کمی ابری" : "partly cloudy";
+    if (code < 50) return fa ? "ابری" : "cloudy";
+    if (code < 70) return fa ? "باران" : "rain";
+    if (code < 80) return fa ? "برف" : "snow";
+    return fa ? "رعد" : "storm";
+  }
+  function weatherText() {
+    const wx = state.wx;
+    if (!wx || !Number.isFinite(Number(wx.temp))) return "";
+    return Math.round(Number(wx.temp)) + "° · " + weatherSky(Number(wx.code) || 0);
+  }
+  async function loadWeather(force) {
+    const cached = safeParse("freq-wx", null);
+    if (!force && cached && Number.isFinite(Number(cached.at)) && Date.now() - Number(cached.at) < 30 * 60 * 1000) {
+      state.wx = cached.wx;
+      state.weather = weatherText();
+      tickStand();
+      return;
     }
-    try {
-      if (navigator.geolocation) {
-        const pos = await new Promise(function (res, rej) {
-          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2500, maximumAge: 600000 });
-        });
-        lat = pos.coords.latitude;
-        lon = pos.coords.longitude;
+    let lat = null;
+    let lon = null;
+    if (state.geo && Number.isFinite(state.geo.lat) && Number.isFinite(state.geo.lon)) {
+      lat = state.geo.lat;
+      lon = state.geo.lon;
+    } else {
+      const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toLowerCase();
+      if (tz.indexOf("tehran") >= 0) {
+        lat = 35.6892;
+        lon = 51.389;
       }
-    } catch (_) {}
+    }
+    if (lat === null || lon === null) return;
     try {
       const url =
         "https://api.open-meteo.com/v1/forecast?latitude=" +
-        lat +
+        encodeURIComponent(lat) +
         "&longitude=" +
-        lon +
-        "&current=temperature_2m,weather_code";
-      const j = await fetch(url).then(function (r) {
-        return r.json();
-      });
-      const temp = Math.round((j.current && j.current.temperature_2m) || 0);
-      const code = (j.current && j.current.weather_code) || 0;
-      const sky =
-        code === 0 ? (state.lang === "fa" ? "آفتابی" : "clear") :
-        code < 4 ? (state.lang === "fa" ? "کمی ابری" : "partly cloudy") :
-        code < 50 ? (state.lang === "fa" ? "ابری" : "cloudy") :
-        code < 70 ? (state.lang === "fa" ? "باران" : "rain") :
-        code < 80 ? (state.lang === "fa" ? "برف" : "snow") :
-        state.lang === "fa" ? "رعد" : "storm";
-      state.weather = temp + "° · " + sky;
+        encodeURIComponent(lon) +
+        "&current=temperature_2m,weather_code&timezone=auto";
+      const res = await fetch(url, { credentials: "omit" });
+      if (!res.ok) return;
+      const json = await res.json();
+      const current = (json && json.current) || {};
+      state.wx = { temp: Number(current.temperature_2m), code: Number(current.weather_code) || 0 };
+      lsSet("freq-wx", JSON.stringify({ at: Date.now(), wx: state.wx }));
+      state.weather = weatherText();
       tickStand();
     } catch (_) {}
   }
-  function shareTelegram(st) {
-    if (!st) return;
+  function shareTelegram(station) {
+    if (!station) return;
     const url =
       "https://t.me/share/url?url=" +
-      encodeURIComponent(stationUrl(st)) +
+      encodeURIComponent(stationUrl(station)) +
       "&text=" +
-      encodeURIComponent((st.name || "FREQ") + " — FREQ");
-    window.open(url, "_blank", "noopener");
+      encodeURIComponent((station.name || "FREQ") + " — FREQ");
+    try {
+      window.open(url, "_blank", "noopener");
+    } catch (_) {}
   }
 
-
   function saveFolders() {
-    try { localStorage.setItem("freq-folders", JSON.stringify(state.folders || [])); } catch (_) {}
+    lsSet("freq-folders", JSON.stringify(state.folders || []));
   }
   function renderFolders() {
     const box = $("folders");
     if (!box) return;
     const items = (state.folders || []).map(function (f) {
       const on = state.mode === "folder" && state.folderId === f.id ? "on" : "";
-      return '<button type="button" class="' + on + '" data-folder="' + f.id + '">' + esc(f.name) + "</button>";
+      return (
+        '<button type="button" class="' + on + '" data-folder="' + esc(f.id) + '" aria-pressed="' +
+        (on ? "true" : "false") + '">' + esc(f.name) + "</button>"
+      );
     }).join("");
     box.innerHTML = items;
   }
@@ -1581,15 +2354,20 @@
     const inp = $("folder-name");
     const name = ((inp && inp.value) || "").trim();
     if (!name) { toast(t("folderPh")); return; }
+    if (state.folders.length >= 20) { toast(t("noFolder")); return; }
     const id = "f" + Date.now().toString(36);
     state.folders = (state.folders || []).concat([{ id: id, name: name, ids: [] }]).slice(-20);
+    state.folderId = id;
     saveFolders();
     if (inp) inp.value = "";
     renderFolders();
     toast(t("saved"));
   }
   function addToFolder() {
-    if (!state.current) return;
+    if (!state.current) {
+      toast(t("empty"));
+      return;
+    }
     const list = state.folders || [];
     if (!list.length) { toast(t("noFolder")); return; }
     const f = list.find(function (x) { return x.id === state.folderId; }) || list[0];
@@ -1605,7 +2383,11 @@
   function openFolder(id) {
     state.mode = "folder";
     state.folderId = id;
+    state.homeAll = false;
+    closeFilters();
+    renderFolders();
     loadStations().catch(function () {});
+    syncUrl();
   }
   function toggleMap() {
     if (state.mapOpen) closeMap();
@@ -1629,64 +2411,108 @@
     drawMap();
   }
   async function loadMapPts() {
-    let pts = (state.stations || []).filter(function (s) {
-      return s.geo_lat && s.geo_long;
-    }).map(function (s) {
-      return { lat: Number(s.geo_lat), lon: Number(s.geo_long), s: s };
-    });
-    if (pts.length < 40) {
+    let pts = (state.stations || [])
+      .filter(function (s) { return s.geo_lat !== null && s.geo_long !== null; })
+      .map(function (s) { return { lat: Number(s.geo_lat), lon: Number(s.geo_long), s: s }; });
+    if (pts.length < 60) {
       try {
-        const extra = await getJSON("/json/stations/search?hidebroken=true&is_https=true&has_geo_info=true&limit=300&order=clickcount&reverse=true");
-        const seen = {};
+        const extra = await getJSON(
+          "/json/stations/search?hidebroken=true&is_https=true&has_geo_info=true&limit=400&order=clickcount&reverse=true",
+          { ttl: 5 * 60 * 1000 }
+        );
+        const seen = Object.create(null);
         pts.forEach(function (p) { seen[p.s.stationuuid] = 1; });
-        (extra || []).forEach(function (st) {
-          if (seen[st.stationuuid] || !st.geo_lat) return;
+        normalizeStations(extra || []).forEach(function (st) {
+          if (seen[st.stationuuid] || st.geo_lat === null) return;
+          seen[st.stationuuid] = 1;
           pts.push({ lat: Number(st.geo_lat), lon: Number(st.geo_long), s: st });
         });
+        remember(pts.map(function (p) { return p.s; }));
       } catch (_) {}
     }
-    state.mapPts = pts.slice(0, 400);
+    state.mapPts = pts.slice(0, 500);
+    const hint = $("map-hint");
+    if (hint) hint.textContent = state.mapPts.length ? t("mapHint") : t("mapEmpty");
+  }
+  function mapXY(lat, lon, w, h) {
+    return { x: ((lon + 180) / 360) * w, y: ((90 - lat) / 180) * h };
   }
   function drawMap() {
     const c = $("map-c");
     if (!c || !c.getContext) return;
     const ctx = c.getContext("2d");
     const host = c.parentElement;
-    const w = (host && host.clientWidth) || innerWidth;
-    const h = Math.max(280, ((host && host.clientHeight) || innerHeight) - 90);
-    c.width = w * devicePixelRatio;
-    c.height = h * devicePixelRatio;
+    const w = (host && host.clientWidth) || window.innerWidth;
+    const h = Math.max(280, ((host && host.clientHeight) || window.innerHeight) - 90);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
     c.style.width = w + "px";
     c.style.height = h + "px";
-    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const col = themeCols();
-    const wash = ctx.createRadialGradient(w * 0.5, h * 0.35, 20, w * 0.5, h * 0.4, Math.max(w, h) * 0.7);
-    wash.addColorStop(0, "rgba(" + col.accRgb + ",0.12)");
+    const wash = ctx.createRadialGradient(w * 0.5, h * 0.35, 20, w * 0.5, h * 0.4, Math.max(w, h) * 0.72);
+    wash.addColorStop(0, "rgba(" + col.accRgb + ",0.14)");
     wash.addColorStop(1, col.bg);
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = "rgba(" + col.iceRgb + ",0.07)";
-    for (let x = 0; x <= 12; x++) {
-      ctx.beginPath(); ctx.moveTo((x / 12) * w, 0); ctx.lineTo((x / 12) * w, h); ctx.stroke();
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= 12; x += 1) {
+      ctx.beginPath();
+      ctx.moveTo((x / 12) * w, 0);
+      ctx.lineTo((x / 12) * w, h);
+      ctx.stroke();
     }
-    for (let y = 0; y <= 6; y++) {
-      ctx.beginPath(); ctx.moveTo(0, (y / 6) * h); ctx.lineTo(w, (y / 6) * h); ctx.stroke();
+    for (let y = 0; y <= 6; y += 1) {
+      ctx.beginPath();
+      ctx.moveTo(0, (y / 6) * h);
+      ctx.lineTo(w, (y / 6) * h);
+      ctx.stroke();
     }
-    (state.mapPts || []).forEach(function (pt) {
-      const x = ((pt.lon + 180) / 360) * w;
-      const y = ((90 - pt.lat) / 180) * h;
-      const on = state.current && pt.s.stationuuid === state.current.stationuuid;
+    ctx.strokeStyle = "rgba(" + col.accRgb + ",0.24)";
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+    const pts = state.mapPts || [];
+    pts.forEach(function (pt) {
+      const xy = mapXY(pt.lat, pt.lon, w, h);
+      const on = sameStation(state.current, pt.s);
       if (on) {
         ctx.beginPath();
-        ctx.arc(x, y, 14, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(" + col.accRgb + ",0.2)";
+        ctx.arc(xy.x, xy.y, 15, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(" + col.accRgb + ",0.22)";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(xy.x, xy.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = col.acc;
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(xy.x, xy.y, 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(" + col.iceRgb + ",0.72)";
         ctx.fill();
       }
-      ctx.beginPath();
-      ctx.arc(x, y, on ? 5.5 : 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = on ? col.acc : "rgba(" + col.iceRgb + ",0.75)";
-      ctx.fill();
     });
+    if (state.geo) {
+      const me = mapXY(state.geo.lat, state.geo.lon, w, h);
+      ctx.beginPath();
+      ctx.arc(me.x, me.y, 9, 0, Math.PI * 2);
+      ctx.strokeStyle = col.ice;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(me.x, me.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = col.ice;
+      ctx.fill();
+    }
+    if (!pts.length) {
+      ctx.fillStyle = "rgba(" + col.iceRgb + ",0.6)";
+      ctx.font = "600 14px " + (window.getComputedStyle(document.body).fontFamily || "sans-serif");
+      ctx.textAlign = "center";
+      ctx.fillText(t("mapEmpty"), w / 2, h / 2 + 4);
+    }
   }
   function hitMap(ev) {
     const c = $("map-c");
@@ -1695,14 +2521,19 @@
     const x = ev.clientX - r.left;
     const y = ev.clientY - r.top;
     let best = null;
-    let bestD = 18;
+    let bestD = 26;
     (state.mapPts || []).forEach(function (pt) {
-      const px = ((pt.lon + 180) / 360) * r.width;
-      const py = ((90 - pt.lat) / 180) * r.height;
-      const d = Math.hypot(px - x, py - y);
-      if (d < bestD) { bestD = d; best = pt; }
+      const xy = mapXY(pt.lat, pt.lon, r.width, r.height);
+      const d = Math.hypot(xy.x - x, xy.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = pt;
+      }
     });
-    if (best) play(best.s);
+    if (best) {
+      play(best.s);
+      closeMap();
+    }
   }
   function toggleCar() {
     if (state.carOpen) closeCar();
@@ -1726,12 +2557,6 @@
   }
 
 
-  function hexRgb(hex) {
-    const h = String(hex || "").replace("#", "");
-    if (h.length !== 6) return "255,77,46";
-    const n = parseInt(h, 16);
-    return ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255);
-  }
   function themeById(id) {
     return THEMES.find(function (x) { return x.id === id; }) || THEMES[0];
   }
@@ -1739,8 +2564,10 @@
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
   }
+  let colsCache = null;
   function themeCols() {
-    return {
+    if (colsCache) return colsCache;
+    colsCache = {
       acc: cssVar("--acc", "#ff4d2e"),
       ice: cssVar("--ice", "#7dd3fc"),
       accRgb: cssVar("--acc-rgb", "255,77,46"),
@@ -1748,6 +2575,7 @@
       bgRgb: cssVar("--bg-rgb", "9,9,11"),
       bg: cssVar("--bg", "#09090b"),
     };
+    return colsCache;
   }
   function applyTheme() {
     const th = themeById(state.theme);
@@ -1769,7 +2597,9 @@
     r.style.setProperty("--acc-rgb", hexRgb(th.acc));
     r.style.setProperty("--ice-rgb", hexRgb(th.ice));
     r.style.setProperty("--bg-rgb", hexRgb(th.bg));
-    try { localStorage.setItem("freq-theme", th.id); } catch (_) {}
+    r.style.colorScheme = th.light ? "light" : "dark";
+    colsCache = null;
+    lsSet("freq-theme", th.id);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", th.bg);
     const btn = $("theme-btn");
@@ -1785,7 +2615,7 @@
       const name = state.lang === "fa" ? th.fa : th.en;
       const sub = state.lang === "fa" ? th.en : th.fa;
       return (
-        '<button type="button" class="theme-tile ' + on + '" data-tid="' + th.id + '">' +
+        '<button type="button" class="theme-tile ' + on + '" data-tid="' + th.id + '" aria-pressed="' + (on ? "true" : "false") + '">' +
         '<div class="theme-preview" style="--tp-bg:' + th.bg + ";--tp-acc:" + th.acc + ";--tp-ice:" + th.ice + '"><em></em></div>' +
         "<b>" + esc(name) + "</b><span>" + esc(sub) + "</span></button>"
       );
@@ -1798,13 +2628,20 @@
     const b = $("theme-btn");
     if (b) b.classList.add("on");
     renderThemeGrid();
+    if (b) {
+      b.classList.add("on");
+      b.setAttribute("aria-expanded", "true");
+    }
   }
   function closeThemes(fromPop) {
     const el = $("themes");
     const was = el && !el.hidden;
     if (el) el.hidden = true;
     const b = $("theme-btn");
-    if (b) b.classList.remove("on");
+    if (b) {
+      b.classList.remove("on");
+      b.setAttribute("aria-expanded", "false");
+    }
     if (was) dropLayer("themes", fromPop);
   }
   function toggleThemes() {
@@ -1813,10 +2650,21 @@
     else openThemes();
   }
   function setTheme(id) {
-    state.theme = id;
-    applyTheme();
     const th = themeById(id);
-    toast((state.lang === "fa" ? th.fa : th.en));
+    const commit = function () {
+      state.theme = th.id;
+      applyTheme();
+    };
+    try {
+      if (document.startViewTransition && !prefersReducedMotion()) {
+        document.startViewTransition(commit);
+      } else {
+        commit();
+      }
+    } catch (_) {
+      commit();
+    }
+    toast(state.lang === "fa" ? th.fa : th.en);
   }
   function topEntries(obj, n) {
     return Object.keys(obj || {})
@@ -1827,42 +2675,80 @@
   function renderWrap() {
     const box = $("wrap-body");
     if (!box) return;
+    if (!state.stats.tags || typeof state.stats.tags !== "object") state.stats.tags = {};
+    if (!state.stats.names || typeof state.stats.names !== "object") state.stats.names = {};
     const hours = ((state.stats.ms || 0) / 3600000).toFixed(1);
     const n = Object.keys(state.stats.hits || {}).length;
     const favn = (state.favs || []).length;
     const th = themeById(state.theme);
-    const tops = topEntries(state.stats.hits, 5).map(function (pair) {
-      const id = pair[0];
-      const s = findStation(id);
-      const name = (s && s.name) || (state.stats.names && state.stats.names[id]) || id.slice(0, 10);
-      return "<li><b>" + esc(name) + "</b><span>" + pair[1] + "</span></li>";
-    }).join("");
-    const gens = topEntries(state.stats.tags, 8).map(function (pair) {
-      return "<em>" + esc(pair[0]) + "</em>";
-    }).join("");
+    const tops = topEntries(state.stats.hits, 6)
+      .map(function (pair) {
+        const id = pair[0];
+        const s = findStation(id);
+        const name = (s && s.name) || state.stats.names[id] || id.slice(0, 10);
+        return (
+          '<li><button type="button" class="wrap-play" data-play="' + esc(id) + '">' +
+          esc(name) + "</button><span>" + formatNumber(pair[1]) + "</span></li>"
+        );
+      })
+      .join("");
+    const gens = topEntries(state.stats.tags, 8)
+      .map(function (pair) {
+        return "<em>" + esc(pair[0]) + " · " + formatNumber(pair[1]) + "</em>";
+      })
+      .join("");
+    const since = state.stats.since
+      ? '<p class="themes-sub">' +
+        esc(t("since")) +
+        " " + esc(new Date(state.stats.since).toLocaleDateString(state.lang === "fa" ? "fa-IR" : "en-GB")) +
+        "</p>"
+      : "";
     box.innerHTML =
       '<div class="wrap-nums">' +
-      "<div><b>" + hours + "</b><span>" + t("hours") + "</span></div>" +
-      "<div><b>" + n + "</b><span>" + t("heard") + "</span></div>" +
-      "<div><b>" + favn + "</b><span>" + t("fav") + "</span></div>" +
+      "<div><b>" + esc(hours) + "</b><span>" + esc(t("hours")) + "</span></div>" +
+      "<div><b>" + formatNumber(n) + "</b><span>" + esc(t("heard")) + "</span></div>" +
+      "<div><b>" + formatNumber(favn) + "</b><span>" + esc(t("fav")) + "</span></div>" +
       "</div>" +
-      '<div class="wrap-theme">' + t("theme") + " · " + (state.lang === "fa" ? th.fa : th.en) + "</div>" +
-      (tops ? "<h4>" + t("topStations") + '</h4><ol class="wrap-ol">' + tops + "</ol>" : "") +
-      (gens ? "<h4>" + t("topGenres") + '</h4><div class="wrap-tags">' + gens + "</div>" : "<p class=\"themes-sub\">" + t("wrapEmpty") + "</p>");
+      '<div class="wrap-theme">' + esc(t("theme")) + " · " + esc(state.lang === "fa" ? th.fa : th.en) + "</div>" +
+      since +
+      (tops ? "<h4>" + esc(t("topStations")) + '</h4><ol class="wrap-ol">' + tops + "</ol>" : "") +
+      (gens ? "<h4>" + esc(t("topGenres")) + '</h4><div class="wrap-tags">' + gens + "</div>" : "") +
+      (!tops && !gens ? '<p class="themes-sub">' + esc(t("wrapEmpty")) + "</p>" : "") +
+      '<div class="wrap-actions"><button type="button" class="ghost wide" data-reset-stats="1">' +
+      esc(t("resetStats")) + "</button></div>";
+  }
+  function openWrap() {
+    const el = $("wrap");
+    if (!el) return;
+    if (el.hidden) pushLayer("wrap");
+    renderWrap();
+    el.hidden = false;
+    const b = $("wrap-btn");
+    if (b) {
+      b.classList.add("on");
+      b.setAttribute("aria-expanded", "true");
+    }
+  }
+  function closeWrap(fromPop) {
+    const el = $("wrap");
+    const was = el && !el.hidden;
+    if (el) el.hidden = true;
+    const b = $("wrap-btn");
+    if (b) {
+      b.classList.remove("on");
+      b.setAttribute("aria-expanded", "false");
+    }
+    if (was) dropLayer("wrap", fromPop);
   }
   function toggleWrap() {
     const el = $("wrap");
     if (!el) return;
     if (!el.hidden) {
-      el.hidden = true;
+      closeWrap();
       return;
     }
-    renderWrap();
-    el.hidden = false;
-  }
-  function closeWrap() {
-    const el = $("wrap");
-    if (el) el.hidden = true;
+    closeSettings();
+    openWrap();
   }
   function startVoice() {
     const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1881,7 +2767,10 @@
     rec.interimResults = false;
     rec.maxAlternatives = 1;
     const btn = $("mic-btn");
-    if (btn) btn.classList.add("on");
+    if (btn) {
+      btn.classList.add("on");
+      btn.setAttribute("aria-pressed", "true");
+    }
     rec.onresult = function (e) {
       const said = (e.results && e.results[0] && e.results[0][0] && e.results[0][0].transcript) || "";
       if ($("q")) $("q").value = said;
@@ -1889,13 +2778,20 @@
       state.mode = "browse";
       state.homeAll = !!String(said).trim();
       loadStations().catch(function () {});
+      syncUrl();
     };
     rec.onend = function () {
-      if (btn) btn.classList.remove("on");
+      if (btn) {
+        btn.classList.remove("on");
+        btn.setAttribute("aria-pressed", "false");
+      }
       state.rec = null;
     };
     rec.onerror = function () {
-      if (btn) btn.classList.remove("on");
+      if (btn) {
+        btn.classList.remove("on");
+        btn.setAttribute("aria-pressed", "false");
+      }
       toast(t("noVoice"));
     };
     state.rec = rec;
@@ -1903,14 +2799,20 @@
       rec.start();
       toast(t("listening"));
     } catch (_) {
-      if (btn) btn.classList.remove("on");
+      if (btn) {
+        btn.classList.remove("on");
+        btn.setAttribute("aria-pressed", "false");
+      }
       toast(t("noVoice"));
     }
   }
   function syncFiltersBtn() {
     const b = $("filters-btn");
     const box = $("filters");
-    if (b) b.classList.toggle("on", !!state.filtersOpen);
+    if (b) {
+      b.classList.toggle("on", !!state.filtersOpen);
+      b.setAttribute("aria-expanded", state.filtersOpen ? "true" : "false");
+    }
     if (box) box.hidden = !state.filtersOpen;
   }
   function closeFilters(fromPop) {
@@ -1921,7 +2823,7 @@
   }
   function hideExploreTip() {
     document.querySelectorAll(".neon-tip").forEach(function (el) { el.hidden = true; });
-    try { localStorage.setItem("freq-seen-filter", "1"); } catch (_) {}
+    lsSet("freq-seen-filter", "1");
   }
   function toggleFilters() {
     hideExploreTip();
@@ -1939,7 +2841,10 @@
     const was = el && !el.hidden;
     if (el) el.hidden = true;
     const b = $("settings-btn");
-    if (b) b.classList.remove("on");
+    if (b) {
+      b.classList.remove("on");
+      b.setAttribute("aria-expanded", "false");
+    }
     if (was) dropLayer("settings", fromPop);
   }
   function toggleSettings() {
@@ -1952,76 +2857,150 @@
     closeFilters();
     el.hidden = false;
     const b = $("settings-btn");
-    if (b) b.classList.add("on");
+    if (b) {
+      b.classList.add("on");
+      b.setAttribute("aria-expanded", "true");
+    }
     pushLayer("settings");
   }
   async function loadDiscover() {
-    const bag = {};
-    (state.recents || []).concat(state.favs || []).forEach(function (s) {
-      String(s.tags || "").split(",").forEach(function (raw) {
-        const tag = raw.trim();
-        if (tag) bag[tag] = (bag[tag] || 0) + 1;
-      });
-    });
-    const top = Object.keys(bag).sort(function (a, b) { return bag[b] - bag[a]; })[0];
-    if (!top) return;
+    const entries = []
+      .concat((state.favs || []).map(function (s) { return { tags: s.tags, weight: 3 }; }))
+      .concat((state.recents || []).map(function (s) { return { tags: s.tags, weight: 2 }; }))
+      .concat(
+        topEntries(state.stats.tags || {}, 10).map(function (pair) {
+          return { tags: pair[0], weight: Math.min(6, pair[1]) };
+        })
+      );
+    const tags = topTags(entries, 3);
+    if (!tags.length) return;
+    const tag = tags[0].tag;
     try {
-      const data = await getJSON("/json/stations/search?hidebroken=true&is_https=true&limit=16&order=clickcount&reverse=true&tag=" + encodeURIComponent(top));
-      state.forYou = (data || []).filter(function (s) {
-        return (s.url_resolved || s.url || "").startsWith("https://");
+      const data = await getJSON(
+        "/json/stations/search?hidebroken=true&is_https=true&limit=30&order=clickcount&reverse=true&tag=" +
+          encodeURIComponent(tag),
+        { ttl: 5 * 60 * 1000 }
+      );
+      const exclude = Object.create(null);
+      [state.current].concat(state.favs, state.recents).forEach(function (s) {
+        if (s && s.stationuuid) exclude[s.stationuuid] = 1;
       });
+      state.forYou = normalizeStations(data)
+        .filter(function (s) { return !exclude[s.stationuuid]; })
+        .slice(0, 12);
+      state.forYouTag = tag;
       remember(state.forYou);
       if (isHome()) renderList();
     } catch (_) {}
   }
-  async function loadNear() {
-    let lat = 50.1109, lon = 8.6821;
-    try {
-      if (navigator.geolocation) {
-        const pos = await new Promise(function (res, rej) {
-          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2500, maximumAge: 600000 });
-        });
-        lat = pos.coords.latitude;
-        lon = pos.coords.longitude;
+
+  function requestGeo(timeout) {
+    return new Promise(function (resolve) {
+      if (!navigator.geolocation) {
+        resolve(null);
+        return;
       }
-    } catch (_) {
-      const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toLowerCase();
-      if (tz.indexOf("tehran") >= 0) { lat = 35.6892; lon = 51.389; }
+      navigator.geolocation.getCurrentPosition(
+        function (pos) {
+          resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        },
+        function () { resolve(null); },
+        { timeout: timeout || 9000, maximumAge: 10 * 60 * 1000, enableHighAccuracy: false }
+      );
+    });
+  }
+  function storeGeo(coords) {
+    if (!coords) return;
+    state.geo = { lat: Number(coords.lat), lon: Number(coords.lon), at: Date.now() };
+    lsSet("freq-geo", JSON.stringify(state.geo));
+    syncGeoBtn();
+  }
+  function syncGeoBtn() {
+    const b = $("geo-btn");
+    if (!b) return;
+    b.textContent = state.geo ? t("location") + " ✓" : t("useLocation");
+    b.classList.toggle("on", !!state.geo);
+  }
+  async function enableGeo() {
+    if (!navigator.geolocation) {
+      toast(t("locationUnsupported"));
+      return null;
     }
+    const pos = await requestGeo();
+    if (!pos) {
+      toast(t("locationDenied"));
+      return null;
+    }
+    storeGeo(pos);
+    toast(t("locationOn"));
+    loadWeather(true).catch(function () {});
+    loadNear(true).catch(function () {});
+    return pos;
+  }
+
+  async function loadNear(force) {
+    if (!state.geo) {
+      if (!force) return;
+      const pos = await enableGeo();
+      if (!pos) return;
+    }
+    const lat = state.geo.lat;
+    const lon = state.geo.lon;
     try {
-      const data = await getJSON("/json/stations/search?hidebroken=true&is_https=true&has_geo_info=true&limit=200&order=clickcount&reverse=true");
-      const list = (data || []).filter(function (s) {
-        return s.geo_lat && (s.url_resolved || s.url || "").startsWith("https://");
-      }).map(function (s) {
-        const dlat = Number(s.geo_lat) - lat;
-        const dlon = Number(s.geo_long) - lon;
-        s._d = dlat * dlat + dlon * dlon;
-        return s;
-      }).sort(function (a, b) { return a._d - b._d; }).slice(0, 16);
+      const data = await getJSON(
+        "/json/stations/search?hidebroken=true&is_https=true&has_geo_info=true&limit=300&order=clickcount&reverse=true",
+        { ttl: 10 * 60 * 1000 }
+      );
+      const list = normalizeStations(data)
+        .filter(function (s) { return s.geo_lat !== null && s.geo_long !== null; })
+        .map(function (s) {
+          const dy = s.geo_lat - lat;
+          const dx = (s.geo_long - lon) * Math.cos((lat * Math.PI) / 180);
+          s._d = dx * dx + dy * dy;
+          return s;
+        })
+        .sort(function (a, b) { return a._d - b._d; })
+        .slice(0, 20);
       state.nearList = list;
       remember(list);
       if (isHome()) renderList();
     } catch (_) {}
   }
-  function goNear() {
+  async function goNear() {
+    if (!state.geo) {
+      const pos = await enableGeo();
+      if (!pos) return;
+    }
+    if (state.nearList && state.nearList.length) {
+      state.mode = "browse";
+      state.homeAll = true;
+      state.cc = "";
+      state.tag = "";
+      state.band = "";
+      state.q = "";
+      if ($("q")) $("q").value = "";
+      state.stations = state.nearList.slice();
+      state.hasMore = false;
+      state.error = false;
+      renderCountries();
+      renderGenres();
+      renderBands();
+      renderList();
+      closeFilters();
+      toast(t("near"));
+      syncUrl();
+      return;
+    }
+    closeFilters();
     state.mode = "browse";
     state.homeAll = true;
-    state.cc = "";
-    state.tag = "";
-    if (state.nearList && state.nearList.length) {
-      remember(state.nearList);
+    await loadNear(true);
+    if (state.nearList.length) {
       state.stations = state.nearList.slice();
       state.hasMore = false;
       renderList();
-      toast(t("near"));
     } else {
-      loadNear().then(function () {
-        if (state.nearList.length) {
-          remember(state.nearList);
-          state.stations = state.nearList.slice();
-          renderList();
-        }
-      });
+      toast(t("nearEmpty"));
     }
   }
   function pingAlarm(s) {
@@ -2036,157 +3015,200 @@
     } catch (_) {}
   }
 
-  function viz() {
-    const c = $("viz");
-    if (!c || !c.getContext) return;
-    const ctx = c.getContext("2d");
-    if (!ctx) return;
-    let t = 0;
-    const motes = Array.from({ length: 48 }, () => ({
-      x: Math.random(),
-      y: Math.random(),
-      r: 0.4 + Math.random() * 1.4,
-      s: 0.15 + Math.random() * 0.4,
-    }));
-    function resize() {
-      c.width = innerWidth * devicePixelRatio;
-      c.height = innerHeight * devicePixelRatio;
-      c.style.width = innerWidth + "px";
-      c.style.height = innerHeight + "px";
-      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  function prefersReducedMotion() {
+    try {
+      return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch (_) {
+      return false;
     }
-    resize();
-    addEventListener("resize", resize);
-    function frame() {
-      t += state.playing ? 0.018 : 0.006;
-      const w = innerWidth;
-      const h = innerHeight;
-      const col = themeCols();
-      ctx.fillStyle = "rgba(" + col.bgRgb + ",0.22)";
-      ctx.fillRect(0, 0, w, h);
-      const cx = w / 2;
-      const cy = h * 0.38;
-      const lamp = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w, h) * 0.55);
-      lamp.addColorStop(0, state.playing ? "rgba(" + col.accRgb + ",0.16)" : "rgba(" + col.iceRgb + ",0.07)");
-      lamp.addColorStop(1, "rgba(" + col.bgRgb + ",0)");
-      ctx.fillStyle = lamp;
-      ctx.fillRect(0, 0, w, h);
-      for (let i = 7; i >= 1; i--) {
-        const r = 28 + i * 38 + Math.sin(t * 1.4 + i) * (state.playing ? 10 : 3);
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = i % 2
+  }
+
+  const fx = {
+    raf: 0,
+    t: 0,
+    last: 0,
+    motes: [],
+    viz: null,
+    wave: null,
+    ring: null,
+    w: 0,
+    h: 0,
+    waveW: 0,
+    ringW: 0,
+  };
+
+  function fitCanvas(canvas, width, height) {
+    if (!canvas) return null;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return ctx;
+  }
+
+  function resizeFx() {
+    const vizCanvas = $("viz");
+    if (vizCanvas) {
+      fx.w = window.innerWidth;
+      fx.h = window.innerHeight;
+      vizCanvas.style.width = fx.w + "px";
+      vizCanvas.style.height = fx.h + "px";
+      fx.viz = fitCanvas(vizCanvas, fx.w, fx.h);
+    }
+    const waveCanvas = $("p-wave");
+    if (waveCanvas && waveCanvas.parentElement) {
+      fx.waveW = Math.max(1, waveCanvas.parentElement.clientWidth);
+      waveCanvas.style.width = fx.waveW + "px";
+      fx.wave = fitCanvas(waveCanvas, fx.waveW, 26);
+    }
+    const ringCanvas = $("s-ring");
+    if (ringCanvas) {
+      const size = Math.round(ringCanvas.getBoundingClientRect().width) || 240;
+      fx.ringW = size;
+      fx.ring = fitCanvas(ringCanvas, size, size);
+    }
+    drawFx(true);
+  }
+
+  function drawViz() {
+    const ctx = fx.viz;
+    if (!ctx) return;
+    const w = fx.w;
+    const h = fx.h;
+    const col = themeCols();
+    const cx = w / 2;
+    const cy = h * 0.38;
+    const t = fx.t;
+    ctx.clearRect(0, 0, w, h);
+    const lamp = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w, h) * 0.55);
+    lamp.addColorStop(0, state.playing ? "rgba(" + col.accRgb + ",0.18)" : "rgba(" + col.iceRgb + ",0.07)");
+    lamp.addColorStop(1, "rgba(" + col.bgRgb + ",0)");
+    ctx.fillStyle = lamp;
+    ctx.fillRect(0, 0, w, h);
+    for (let i = 7; i >= 1; i -= 1) {
+      const r = 28 + i * 38 + Math.sin(t * 1.4 + i) * (state.playing ? 10 : 3);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle =
+        i % 2
           ? "rgba(" + col.accRgb + "," + (0.05 + i * 0.02) + ")"
           : "rgba(" + col.iceRgb + "," + (0.04 + i * 0.015) + ")";
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-      }
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(cx, cy, 7 + (state.playing ? 3 : 0), 0, Math.PI * 2);
+    ctx.fillStyle = state.playing ? col.acc : col.ice;
+    ctx.shadowColor = state.playing ? col.acc : col.ice;
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    fx.motes.forEach(function (m) {
+      m.y -= m.s * 0.00035;
+      if (m.y < 0) m.y = 1;
       ctx.beginPath();
-      ctx.arc(cx, cy, 7 + (state.playing ? 3 : 0), 0, Math.PI * 2);
-      ctx.fillStyle = state.playing ? col.acc : col.ice;
-      ctx.shadowColor = state.playing ? col.acc : col.ice;
-      ctx.shadowBlur = 16;
+      ctx.arc(m.x * w, m.y * h, m.r, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
       ctx.fill();
-      ctx.shadowBlur = 0;
-      motes.forEach((m) => {
-        m.y -= m.s * 0.00035;
-        if (m.y < 0) m.y = 1;
-        ctx.beginPath();
-        ctx.arc(m.x * w, m.y * h, m.r, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,255,255,0.08)";
-        ctx.fill();
-      });
-      requestAnimationFrame(frame);
-    }
-    frame();
+    });
   }
 
-  function playerWave() {
-    const c = $("p-wave");
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    let t = 0;
-    function resize() {
-      const r = c.parentElement.getBoundingClientRect();
-      c.width = Math.max(1, r.width) * devicePixelRatio;
-      c.height = 26 * devicePixelRatio;
-      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  function drawWave() {
+    const ctx = fx.wave;
+    if (!ctx) return;
+    const w = fx.waveW;
+    const h = 26;
+    const t = fx.t;
+    const col = themeCols();
+    ctx.clearRect(0, 0, w, h);
+    ctx.beginPath();
+    const amp = state.playing ? 7.5 : 2.2;
+    for (let x = 0; x <= w; x += 3) {
+      const y = h * 0.55 + Math.sin(x * 0.045 + t) * amp + Math.sin(x * 0.11 + t * 1.7) * (amp * 0.45);
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
-    resize();
-    addEventListener("resize", resize);
-    function frame() {
-      t += state.playing ? 0.09 : 0.02;
-      const w = c.width / devicePixelRatio;
-      const h = 26;
-      ctx.clearRect(0, 0, w, h);
-      ctx.beginPath();
-      for (let x = 0; x <= w; x += 3) {
-        const amp = state.playing ? 7.5 : 2.2;
-        const y =
-          h * 0.55 +
-          Math.sin(x * 0.045 + t) * amp +
-          Math.sin(x * 0.11 + t * 1.7) * (amp * 0.45);
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      const col = themeCols();
-      const g = ctx.createLinearGradient(0, 0, w, 0);
-      g.addColorStop(0, "rgba(" + col.iceRgb + ",0)");
-      g.addColorStop(0.2, "rgba(" + col.iceRgb + ",0.55)");
-      g.addColorStop(0.55, "rgba(" + col.accRgb + ",0.85)");
-      g.addColorStop(1, "rgba(" + col.iceRgb + ",0)");
-      ctx.strokeStyle = g;
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
-      requestAnimationFrame(frame);
-    }
-    frame();
+    const gradient = ctx.createLinearGradient(0, 0, w, 0);
+    gradient.addColorStop(0, "rgba(" + col.iceRgb + ",0)");
+    gradient.addColorStop(0.2, "rgba(" + col.iceRgb + ",0.55)");
+    gradient.addColorStop(0.55, "rgba(" + col.accRgb + ",0.85)");
+    gradient.addColorStop(1, "rgba(" + col.iceRgb + ",0)");
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
   }
 
-  function stageRing() {
-    const c = $("s-ring");
-    if (!c) return;
-    const ctx = c.getContext("2d");
-    let t = 0;
-    function resize() {
-      const box = c.getBoundingClientRect();
-      const s = Math.max(1, box.width);
-      c.width = s * devicePixelRatio;
-      c.height = s * devicePixelRatio;
-      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    }
-    resize();
-    addEventListener("resize", resize);
-    function frame() {
-      t += state.playing ? 0.05 : 0.012;
-      const w = c.width / devicePixelRatio;
-      const cx = w / 2;
-      const cy = w / 2;
-      ctx.clearRect(0, 0, w, w);
-      const bars = 64;
-      const r0 = w * 0.42;
-      for (let i = 0; i < bars; i++) {
-        const a = (i / bars) * Math.PI * 2 - Math.PI / 2 + t * 0.15;
-        const pulse = state.playing
-          ? 10 + Math.abs(Math.sin(t * 3 + i * 0.45)) * 18 + Math.abs(Math.sin(t * 1.4 + i)) * 8
-          : 4;
-        ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
-        ctx.lineTo(cx + Math.cos(a) * (r0 + pulse), cy + Math.sin(a) * (r0 + pulse));
-        const col = themeCols();
-        ctx.strokeStyle = i % 2 ? "rgba(" + col.accRgb + ",0.72)" : "rgba(" + col.iceRgb + ",0.5)";
-        ctx.lineWidth = 2.2;
-        ctx.lineCap = "round";
-        ctx.stroke();
-      }
+  function drawRing() {
+    const ctx = fx.ring;
+    if (!ctx || !state.stageOpen) return;
+    const size = fx.ringW;
+    const t = fx.t;
+    const cx = size / 2;
+    const cy = size / 2;
+    const col = themeCols();
+    ctx.clearRect(0, 0, size, size);
+    const bars = 64;
+    const r0 = size * 0.42;
+    for (let i = 0; i < bars; i += 1) {
+      const a = (i / bars) * Math.PI * 2 - Math.PI / 2 + t * 0.15;
+      const pulse = state.playing
+        ? 10 + Math.abs(Math.sin(t * 3 + i * 0.45)) * 18 + Math.abs(Math.sin(t * 1.4 + i)) * 8
+        : 4;
       ctx.beginPath();
-      ctx.arc(cx, cy, r0 - 6, 0, Math.PI * 2);
-      ctx.strokeStyle = state.playing ? "rgba(" + themeCols().accRgb + ",0.35)" : "rgba(255,255,255,0.08)";
-      ctx.lineWidth = 2;
+      ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+      ctx.lineTo(cx + Math.cos(a) * (r0 + pulse), cy + Math.sin(a) * (r0 + pulse));
+      ctx.strokeStyle = i % 2 ? "rgba(" + col.accRgb + ",0.72)" : "rgba(" + col.iceRgb + ",0.5)";
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = "round";
       ctx.stroke();
-      requestAnimationFrame(frame);
     }
-    frame();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r0 - 6, 0, Math.PI * 2);
+    ctx.strokeStyle = state.playing ? "rgba(" + col.accRgb + ",0.35)" : "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  function drawFx(force) {
+    if (!force && document.hidden) return;
+    drawViz();
+    drawWave();
+    if (state.stageOpen) drawRing();
+  }
+
+  function startFx() {
+    fx.motes = Array.from({ length: 40 }, function () {
+      return {
+        x: Math.random(),
+        y: Math.random(),
+        r: 0.4 + Math.random() * 1.4,
+        s: 0.15 + Math.random() * 0.4,
+      };
+    });
+    resizeFx();
+    let resizeTimer = 0;
+    window.addEventListener("resize", function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(resizeFx, 120);
+    });
+    document.addEventListener("visibilitychange", function () {
+      fx.last = 0;
+      if (!document.hidden) drawFx(true);
+    });
+    function loop(now) {
+      fx.raf = window.requestAnimationFrame(loop);
+      if (document.hidden) return;
+      const reduced = prefersReducedMotion();
+      const interval = reduced ? 240 : 32;
+      if (!fx.last) fx.last = now;
+      if (now - fx.last < interval) return;
+      fx.last = now;
+      if (!reduced) fx.t += state.playing ? 0.018 : 0.006;
+      drawFx();
+    }
+    fx.raf = window.requestAnimationFrame(loop);
   }
 
   function remember(list) {
@@ -2219,289 +3241,712 @@
     if (el) el.hidden = true;
     if (was) dropLayer("sheet", fromPop);
   }
-  function openSheet(s) {
+  function openSheet(raw) {
+    const s = normalizeStation(raw);
+    if (!s) return;
     state.sheet = s;
     const el = $("sheet");
-    if (el && el.hidden) pushLayer("sheet");
+    if (!el) return;
+    if (el.hidden) pushLayer("sheet");
     el.hidden = false;
-    $("sh-name").textContent = s.name || "—";
-    $("sh-meta").textContent = [
-      flag(s.countrycode),
-      s.country,
-      s.codec,
-      s.bitrate ? s.bitrate + " kbps" : "",
-      s.votes != null ? t("votes") + " " + s.votes : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    $("sh-tags").textContent = (s.tags || "").split(",").filter(Boolean).slice(0, 8).join(" · ");
-    if (s.favicon) $("sh-ico").src = s.favicon;
-    const home = s.homepage && /^https?:/i.test(s.homepage) ? s.homepage : "";
-    $("sh-home").hidden = !home;
-    if (home) $("sh-home").href = home;
+    setText("sh-name", s.name || "—");
+    setText(
+      "sh-meta",
+      [flag(s.countrycode), s.country, s.codec, s.bitrate ? s.bitrate + " kbps" : "", s.votes ? t("votes") + " " + formatNumber(s.votes) : ""]
+        .filter(Boolean)
+        .join(" · ")
+    );
+    setText("sh-tags", (s.tags || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 8).join(" · "));
+    setArt($("sh-ico"), $("sh-ph"), s);
+    const home = s.homepage && isWebUrl(s.homepage) ? s.homepage : "";
+    const link = $("sh-home");
+    if (link) {
+      link.hidden = !home;
+      if (home) link.href = home;
+      else link.removeAttribute("href");
+    }
+    const play = $("sh-play");
+    if (play) play.textContent = state.playing && sameStation(state.current, s) ? t("pause") : t("play");
   }
 
-  function crowdHash(n) {
-    n = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
-    n = Math.imul(n ^ (n >>> 13), 0xc2b2ae35);
-    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
-  }
-  function iranHour() {
-    try {
-      const parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Tehran",
-        hour: "numeric",
-        minute: "numeric",
-        hourCycle: "h23",
-      }).formatToParts(new Date());
-      let h = 0, m = 0;
-      for (let i = 0; i < parts.length; i++) {
-        if (parts[i].type === "hour") h = Number(parts[i].value);
-        if (parts[i].type === "minute") m = Number(parts[i].value);
-      }
-      return h + m / 60;
-    } catch (_) {
-      const utc = Date.now() + new Date().getTimezoneOffset() * 60000;
-      const t = new Date(utc + 3.5 * 3600000);
-      return t.getHours() + t.getMinutes() / 60;
-    }
-  }
-  function crowdBase(h) {
-    const pts = [
-      [0, 38200], [1.5, 24600], [3, 15800], [5, 17200],
-      [7, 26800], [9.5, 44800], [12, 62400], [13.5, 65800],
-      [16, 81200], [18.5, 96800], [21, 106400], [22.2, 107600],
-      [23.4, 84200], [24, 38200],
-    ];
-    let i = 0;
-    while (i < pts.length - 1 && h > pts[i + 1][0]) i += 1;
-    const a = pts[i], b = pts[i + 1];
-    const t = (h - a[0]) / ((b[0] - a[0]) || 1);
-    const s = t * t * (3 - 2 * t);
-    return a[1] + (b[1] - a[1]) * s;
-  }
-  function crowdNow(salt) {
-    const tick = Math.floor(Date.now() / 3000);
-    const scale = salt === 7 ? 0.94 : 1;
-    const h = crowdHash(tick * 2654435761 + salt * 97);
-    const h2 = crowdHash(tick * 1597334677 + salt * 13);
-    const jitter = (h - 0.5) * 1600 + (h2 - 0.5) * 600;
-    let n = Math.round(crowdBase(iranHour()) * scale + jitter);
-    if (n < 8200) n = 8200;
-    if (n > 112800) n = 112800;
-    return n;
-  }
-  function fmtCrowd(n) {
-    try { return n.toLocaleString("en-US"); }
-    catch (_) { return String(n); }
-  }
-  function renderLive() {
-    const n = crowdNow(3);
-    const nb = $("live-n");
-    if (nb) {
-      const next = fmtCrowd(n);
-      if (nb.textContent !== next) {
-        nb.textContent = next;
-        nb.classList.remove("pop");
-        void nb.offsetWidth;
-        nb.classList.add("pop");
-      }
-    }
+  /* ---------------------------------------------------------------------
+     Real directory numbers, network state, URL state and PWA plumbing
+     --------------------------------------------------------------------- */
+
+  function renderDirectoryStats() {
+    const countEl = $("live-n");
     const pill = $("live-pill");
+    const stats = state.dirStats;
+    const total = stats && Number.isFinite(Number(stats.stations)) ? Number(stats.stations) : 0;
+    if (countEl) countEl.textContent = total ? formatNumber(total, "en-US") : "—";
     if (pill) {
-      const span = pill.querySelector("[data-i18n='online']");
-      if (span) span.textContent = t("online");
-      pill.setAttribute("aria-label", t("onlinePeople") + " · " + fmtCrowd(n));
+      const label = t("stationsLiveTitle") + (total ? " · " + formatNumber(total, "en-US") : "");
+      pill.setAttribute("aria-label", label);
+      pill.setAttribute("title", label);
     }
   }
-  function bumpPresence() { renderLive(); }
-  function startLive() {
-    renderLive();
-    setInterval(renderLive, 3000);
+  async function loadDirectoryStats() {
+    if (
+      state.dirStats &&
+      Number.isFinite(Number(state.dirStats.at)) &&
+      Date.now() - Number(state.dirStats.at) < DIRSTATS_TTL
+    ) {
+      renderDirectoryStats();
+      return;
+    }
+    if (state.offline) {
+      renderDirectoryStats();
+      return;
+    }
+    try {
+      const data = await getJSON("/json/stats", { ttl: DIRSTATS_TTL });
+      if (data && Number.isFinite(Number(data.stations))) {
+        state.dirStats = {
+          stations: Number(data.stations),
+          countries: Number(data.countries) || 0,
+          at: Date.now(),
+        };
+        lsSet("freq-dirstats", JSON.stringify(state.dirStats));
+      }
+    } catch (_) {}
+    renderDirectoryStats();
   }
-  function openLive() {}
-  function closeLive() {}
-  function toggleLive() {}
+
+  function setNetBar(offline, back) {
+    const bar = $("offline");
+    if (!bar) return;
+    bar.hidden = !offline;
+    bar.classList.toggle("is-back", !!back);
+    const text = $("offline-text");
+    if (text) text.textContent = offline ? t("offlineBody") : t("onlineNow");
+  }
+
+  function retryLoad() {
+    state.error = false;
+    state.offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const loader = $("loader");
+    if (loader && loader.classList.contains("failed")) {
+      loader.classList.remove("failed");
+      setText("load-sub", t("loading"));
+      const retry = $("load-retry");
+      if (retry) retry.hidden = true;
+    }
+    loadStations().catch(function () {});
+    loadDirectoryStats();
+    loadCountries();
+  }
+
+  function rememberSearch(value) {
+    const q = String(value || "").trim();
+    if (q.length < 2) return;
+    state.searches = [q]
+      .concat(state.searches.filter(function (x) { return x.toLowerCase() !== q.toLowerCase(); }))
+      .slice(0, 6);
+    lsSet("freq-searches", JSON.stringify(state.searches));
+    renderSearchHints();
+  }
+  function renderSearchHints() {
+    const box = $("search-hints");
+    if (!box) return;
+    box.innerHTML = state.searches.map(function (q) {
+      return '<option value="' + esc(q) + '"></option>';
+    }).join("");
+  }
+
+  function readUrlState() {
+    const params = new URLSearchParams(location.search);
+    const f = parseFilters(params);
+    if (f.view === "fav" || f.view === "recent") state.mode = f.view;
+    if (f.cc) {
+      state.cc = f.cc;
+      state.homeAll = true;
+    }
+    if (f.tag) {
+      state.tag = f.tag;
+      state.band = f.tag;
+      state.homeAll = true;
+    }
+    if (f.language) {
+      state.langFilter = f.language;
+      state.homeAll = true;
+    }
+    if (f.q) {
+      state.q = f.q;
+      const field = $("q");
+      if (field) field.value = f.q;
+      state.homeAll = true;
+    }
+    if (f.sort) state.sort = f.sort;
+    if (f.wave) state.wave = f.wave;
+    state.deepLinkStation = f.station || "";
+    state.deepLinkPending = !!f.station;
+    state.wantsRandom = !!f.random;
+  }
+
+  let urlTimer = 0;
+  function syncUrl() {
+    if (state.deepLinkPending) return;
+    clearTimeout(urlTimer);
+    urlTimer = setTimeout(function () {
+      if (!history || !history.replaceState) return;
+      const query = filtersToQuery({
+        mode: state.mode,
+        cc: state.cc,
+        tag: state.tag,
+        langFilter: state.langFilter,
+        q: state.q,
+        sort: state.sort,
+        wave: state.wave,
+      });
+      const next = location.pathname + (query ? "?" + query : "") + location.hash;
+      if (next !== location.pathname + location.search + location.hash) {
+        try {
+          history.replaceState(null, "", next);
+        } catch (_) {}
+      }
+    }, 320);
+  }
+
+  function hideExploreTipIfSeen() {
+    if (lsGet("freq-seen-filter", "") !== "1") return;
+    document.querySelectorAll(".neon-tip").forEach(function (el) { el.hidden = true; });
+  }
+
+  function syncVersion() {
+    setText("set-ver", "FREQ · v" + APP_VERSION);
+    setText("about-ver", "v" + APP_VERSION);
+  }
+
+  function syncInstallUi() {
+    const btn = $("install-btn");
+    const standalone =
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      window.navigator.standalone === true;
+    state.installed = !!standalone;
+    if (!btn) return;
+    if (standalone) {
+      btn.hidden = true;
+      return;
+    }
+    btn.hidden = !state.installPrompt;
+  }
+  async function installApp() {
+    if (state.installPrompt) {
+      const prompt = state.installPrompt;
+      state.installPrompt = null;
+      try {
+        prompt.prompt();
+        await prompt.userChoice;
+      } catch (_) {}
+      syncInstallUi();
+      return;
+    }
+    toast(state.installed ? t("installed") : t("installHint"), { duration: 5200 });
+  }
+
+  async function registerSW() {
+    if (!("serviceWorker" in navigator) || location.protocol === "file:") return;
+    try {
+      const reg = await navigator.serviceWorker.register("./sw.js", {
+        scope: "./",
+        updateViaCache: "none",
+      });
+      state.swReg = reg;
+      const announce = function () {
+        if (!reg.waiting || !navigator.serviceWorker.controller) return;
+        state.swWaiting = reg.waiting;
+        toast(t("updateReady"), { action: t("refresh"), duration: 15000, onAction: applyUpdate });
+      };
+      if (reg.waiting) announce();
+      reg.addEventListener("updatefound", function () {
+        const worker = reg.installing;
+        if (!worker) return;
+        worker.addEventListener("statechange", function () {
+          if (worker.state === "installed") announce();
+        });
+      });
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (state.swReloading) {
+          state.swReloading = false;
+          location.reload();
+        }
+      });
+      let lastCheck = 0;
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden || Date.now() - lastCheck < 30 * 60 * 1000) return;
+        lastCheck = Date.now();
+        reg.update().catch(function () {});
+      });
+    } catch (_) {}
+  }
+  function applyUpdate() {
+    const worker = state.swWaiting || (state.swReg && state.swReg.waiting);
+    if (worker) {
+      state.swReloading = true;
+      try {
+        worker.postMessage({ type: "SKIP_WAITING" });
+      } catch (_) {}
+      setTimeout(function () {
+        if (state.swReloading) location.reload();
+      }, 1600);
+      return;
+    }
+    location.reload();
+  }
+  async function checkForUpdates() {
+    if (!state.swReg) {
+      toast(t("upToDate"));
+      return;
+    }
+    toast(t("updateCheck"), { duration: 1300 });
+    try {
+      await state.swReg.update();
+    } catch (_) {}
+    setTimeout(function () {
+      if (!state.swWaiting) toast(t("upToDate"));
+    }, 1600);
+  }
+
+  /* ---------------------------------------------------------------------
+     Wiring
+     --------------------------------------------------------------------- */
 
   function bind() {
     bindBack();
-    if (localStorage.getItem("freq-seen-filter") === "1") hideExploreTip();
-    document.querySelectorAll("[data-lang]").forEach((b) => {
-      b.addEventListener("click", () => setLang(b.dataset.lang));
-    });
-    const foldersEl = $("folders");
-    if (foldersEl) {
-      foldersEl.addEventListener("click", function (e) {
-        const btn = e.target.closest("[data-folder]");
+
+    /* Search ------------------------------------------------------------ */
+    const form = $("search-form");
+    const field = $("q");
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        state.q = field ? field.value || "" : "";
+        state.mode = "browse";
+        state.homeAll = !!state.q.trim();
+        rememberSearch(state.q);
+        loadStations().catch(function () {});
+        syncUrl();
+      });
+    }
+    let searchTimer = 0;
+    if (field) {
+      field.addEventListener("input", function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () {
+          const value = field.value || "";
+          if (value.trim() === state.q.trim() && state.mode === "browse") return;
+          state.q = value;
+          state.mode = "browse";
+          state.homeAll = !!value.trim();
+          loadStations().catch(function () {});
+          syncUrl();
+        }, 360);
+      });
+      field.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && field.value) {
+          e.stopPropagation();
+          field.value = "";
+          state.q = "";
+          state.homeAll = false;
+          loadStations().catch(function () {});
+          syncUrl();
+        }
+      });
+    }
+
+    /* Drawer + filter controls ----------------------------------------- */
+    const countryQ = $("country-q");
+    if (countryQ) {
+      countryQ.addEventListener("input", function () {
+        state.countryQ = countryQ.value || "";
+        renderCountries();
+      });
+      countryQ.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && countryQ.value) {
+          e.stopPropagation();
+          countryQ.value = "";
+          state.countryQ = "";
+          renderCountries();
+        }
+      });
+    }
+    const countries = $("countries");
+    if (countries) {
+      countries.addEventListener("click", function (e) {
+        if (e.target.closest("[data-here]")) {
+          goHere();
+          return;
+        }
+        const modeBtn = e.target.closest("[data-mode]");
+        if (modeBtn) {
+          state.mode = modeBtn.dataset.mode;
+          state.homeAll = false;
+          state.folderId = "";
+          closeFilters();
+          loadStations().catch(function () {});
+          syncUrl();
+          return;
+        }
+        const btn = e.target.closest("[data-cc]");
         if (!btn) return;
-        openFolder(btn.dataset.folder);
+        state.mode = "browse";
+        state.cc = btn.dataset.cc || "";
+        state.homeAll = !!state.cc;
+        state.folderId = "";
+        closeFilters();
+        loadStations().catch(function () {});
+        syncUrl();
       });
     }
-    const mapc = $("map-c");
-    if (mapc) {
-      mapc.addEventListener("click", hitMap);
-      addEventListener("resize", function () { if (state.mapOpen) drawMap(); });
+    const genres = $("genres");
+    if (genres) {
+      genres.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-tag]");
+        if (btn) setGenre(btn.dataset.tag || "");
+      });
     }
-    $("countries").addEventListener("click", (e) => {
-      if (e.target.closest("[data-here]")) {
-        goHere();
-        return;
-      }
-      const modeBtn = e.target.closest("[data-mode]");
-      if (modeBtn) {
-        state.mode = modeBtn.dataset.mode;
-        loadStations().catch(() => {});
-        return;
-      }
-      const btn = e.target.closest("[data-cc]");
-      if (!btn) return;
-      state.mode = "browse";
-      state.cc = btn.dataset.cc;
-      state.homeAll = !!btn.dataset.cc;
-      state.q = "";
-      $("q").value = "";
-      loadStations().catch(() => {});
-    });
-    $("genres").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-tag]");
-      if (!btn) return;
-      setGenre(btn.dataset.tag);
-    });
-    const waves = $("waves");
-    if (waves) {
-      waves.addEventListener("click", function (e) {
-        const btn = e.target.closest("[data-wave]");
+    const langs = $("langs");
+    if (langs) {
+      langs.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-langf]");
         if (!btn) return;
-        setWave(btn.dataset.wave);
+        state.mode = "browse";
+        state.langFilter = btn.dataset.langf || "";
+        state.homeAll = true;
+        closeFilters();
+        loadStations().catch(function () {});
+        syncUrl();
       });
     }
-    if ($("sh-hide"))
-      $("sh-hide").addEventListener("click", function () {
-        hideStation(state.sheet || state.current);
+    const sorts = $("sorts");
+    if (sorts) {
+      sorts.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-sort]");
+        if (!btn) return;
+        state.sort = btn.dataset.sort;
+        lsSet("freq-sort", state.sort);
+        renderSorts();
+        if (state.mode === "browse") loadStations().catch(function () {});
+        syncUrl();
       });
+    }
     const bands = $("bands");
     if (bands) {
-      bands.addEventListener("click", (e) => {
+      bands.addEventListener("click", function (e) {
         const btn = e.target.closest("[data-band]");
         if (!btn) return;
         state.mode = "browse";
         state.band = btn.dataset.band || "";
         state.tag = state.band;
         state.homeAll = true;
+        closeFilters();
+        renderGenres();
         loadStations().catch(function () {});
-        renderBands();
+        syncUrl();
       });
     }
-    $("langs").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-langf]");
-      if (!btn) return;
-      state.mode = "browse";
-      state.langFilter = btn.dataset.langf;
-      state.homeAll = true;
-      loadStations().catch(() => {});
-    });
-    $("sorts").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-sort]");
-      if (!btn) return;
-      state.sort = btn.dataset.sort;
-      localStorage.setItem("freq-sort", state.sort);
-      renderSorts();
-      if (state.mode === "browse") loadStations().catch(() => {});
-    });
-    $("search-form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      state.q = $("q").value || "";
-      state.mode = "browse";
-      state.homeAll = !!state.q.trim();
-      loadStations().catch(() => {});
-    });
-    let searchT = 0;
-    if ($("q")) {
-      $("q").addEventListener("input", function () {
-        clearTimeout(searchT);
-        searchT = setTimeout(function () {
-          state.q = $("q").value || "";
-          state.mode = "browse";
-          state.homeAll = !!state.q.trim();
-          loadStations().catch(function () {});
-        }, 380);
+    const waves = $("waves");
+    if (waves) {
+      waves.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-wave]");
+        if (btn) setWave(btn.dataset.wave);
       });
     }
-    $("list").addEventListener("click", (e) => {
-      const gtile = e.target.closest("[data-gtag]");
-      if (gtile) {
-        setGenre(gtile.dataset.gtag);
-        const L = $("list");
-        if (L) L.scrollTop = 0;
-        return;
-      }
-      const info = e.target.closest("[data-info]");
-      if (info) {
-        const s = findStation(info.dataset.info);
-        if (s) openSheet(s);
-        return;
-      }
-      const hit = e.target.closest("[data-play], [data-id]");
-      if (!hit) return;
-      const id = hit.dataset.play || hit.dataset.id;
-      const s = findStation(id);
-      if (s) play(s);
-    });
-    $("list").addEventListener("scroll", () => {
-      const el = $("list");
-      if (el.scrollTop + el.clientHeight > el.scrollHeight - 240) {
-        if (state.hasMore && !state.loadingMore && state.mode === "browse" && !isHome()) {
-          loadStations(true).catch(() => {});
+    const folders = $("folders");
+    if (folders) {
+      folders.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-folder]");
+        if (btn) openFolder(btn.dataset.folder);
+      });
+    }
+    const folderName = $("folder-name");
+    if (folderName) {
+      folderName.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          newFolder();
         }
-      }
-    });
-    $("sheet-x").addEventListener("click", () => closeSheet());
-    $("sh-play").addEventListener("click", () => {
-      if (state.sheet) play(state.sheet);
-    });
-    if ($("sh-share"))
-      $("sh-share").addEventListener("click", () => {
-        shareStation(state.sheet || state.current);
       });
-    if ($("sh-vote"))
-      $("sh-vote").addEventListener("click", () => {
-        voteStation(state.sheet || state.current);
+    }
+
+    /* Map --------------------------------------------------------------- */
+    const mapc = $("map-c");
+    if (mapc) {
+      mapc.addEventListener("click", hitMap);
+      addEventListener("resize", function () {
+        if (state.mapOpen) drawMap();
       });
-    if ($("help-close")) $("help-close").addEventListener("click", closeHelp);
-    if ($("help"))
-      $("help").addEventListener("click", (e) => {
-        if (e.target.id === "help") closeHelp();
+      mapc.addEventListener("pointerdown", function (e) {
+        const rect = mapc.getBoundingClientRect();
+        if (e.clientX - rect.left < 0) e.preventDefault();
       });
-    if ($("alarm-on")) $("alarm-on").addEventListener("change", function () {
-      readAlarmUi();
-      if (state.alarm.on && typeof Notification !== "undefined" && Notification.permission === "default") {
-        Notification.requestPermission().catch(function () {});
-      }
-    });
-    addEventListener("beforeinstallprompt", function (e) {
-      e.preventDefault();
-      window._freqPrompt = e;
-      const b = $("install-btn");
-      if (b) b.hidden = false;
-    });
-    if ($("alarm-time")) $("alarm-time").addEventListener("change", readAlarmUi);
-    if ($("import-file"))
-      $("import-file").addEventListener("change", (e) => {
-        const f = e.target.files && e.target.files[0];
-        importFavs(f);
-        e.target.value = "";
+    }
+
+    /* Wrap stats -------------------------------------------------------- */
+    const wrapBody = $("wrap-body");
+    if (wrapBody) {
+      wrapBody.addEventListener("click", function (e) {
+        if (e.target.closest("[data-reset-stats]")) {
+          state.stats = { ms: 0, hits: {}, tags: {}, names: {}, since: 0 };
+          saveStats(true);
+          renderWrap();
+          tickClock();
+          toast(t("statsReset"));
+          return;
+        }
+        const hit = e.target.closest("[data-play]");
+        if (!hit) return;
+        const s = findStation(hit.dataset.play);
+        if (s) {
+          closeWrap();
+          play(s);
+        }
       });
-    $("sh-similar").addEventListener("click", () => {
-      const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0];
-      if (!tag) return;
-      state.mode = "browse";
-      state.tag = tag.trim();
-      state.q = "";
-      $("q").value = "";
-      closeSheet();
-      loadStations().catch(() => {});
+    }
+
+    /* Graceful artwork fallbacks ---------------------------------------- */
+    document.addEventListener(
+      "error",
+      function (e) {
+        const img = e.target;
+        if (!img || img.tagName !== "IMG" || !img.dataset.art) return;
+        img.hidden = true;
+        const ph = img.nextElementSibling;
+        if (ph && ph.classList && ph.classList.contains("ph")) ph.hidden = false;
+      },
+      true
+    );
+
+    /* Backdrops --------------------------------------------------------- */
+    [
+      ["filters", closeFilters],
+      ["settings", closeSettings],
+      ["sheet", closeSheet],
+      ["help", closeHelp],
+      ["about", closeAbout],
+      ["themes", closeThemes],
+      ["wrap", closeWrap],
+      ["stage", closeStage],
+      ["map", closeMap],
+      ["car", closeCar],
+      ["stand", closeStand],
+    ].forEach(function (pair) {
+      const el = $(pair[0]);
+      if (!el) return;
+      el.addEventListener("click", function (e) {
+        if (e.target === el) pair[1]();
+      });
     });
 
+    /* Station list ------------------------------------------------------ */
+    const list = $("list");
+    if (list) {
+      if (!list.hasAttribute("tabindex")) list.setAttribute("tabindex", "-1");
+      list.addEventListener("click", function (e) {
+        const gtile = e.target.closest("[data-gtag]");
+        if (gtile) {
+          setGenre(gtile.dataset.gtag || "");
+          list.scrollTop = 0;
+          return;
+        }
+        const info = e.target.closest("[data-info]");
+        if (info) {
+          const s = findStation(info.dataset.info);
+          if (s) openSheet(s);
+          return;
+        }
+        const hit = e.target.closest("[data-play], [data-id]");
+        if (!hit) return;
+        const s = findStation(hit.dataset.play || hit.dataset.id);
+        if (!s) return;
+        if (sameStation(s, state.current)) toggle();
+        else play(s);
+      });
+      list.addEventListener("scroll", function () {
+        if (list.scrollTop + list.clientHeight > list.scrollHeight - 280) {
+          if (state.hasMore && !state.loadingMore && !state.error && state.mode === "browse" && !isHome()) {
+            loadStations(true).catch(function () {});
+          }
+        }
+      }, { passive: true });
+    }
+
+    /* Sheet ------------------------------------------------------------- */
+    const on = function (id, fn) {
+      const el = $(id);
+      if (el) el.addEventListener("click", fn);
+    };
+    on("sheet-x", function () { closeSheet(); });
+    on("sh-play", function () {
+      if (!state.sheet) return;
+      if (sameStation(state.sheet, state.current)) toggle();
+      else play(state.sheet);
+      renderPlayer();
+    });
+    on("sh-share", function () { shareStation(state.sheet); });
+    on("sh-copy", function () { copyStation(state.sheet); });
+    on("sh-vote", function () { voteStation(state.sheet); });
+    on("sh-hide", function () { hideStation(state.sheet); });
+    on("sh-similar", function () {
+      const tag = ((state.sheet && state.sheet.tags) || "").split(",")[0].trim();
+      if (!tag) {
+        toast(t("empty"));
+        return;
+      }
+      state.mode = "browse";
+      state.tag = tag;
+      state.homeAll = true;
+      closeSheet();
+      renderGenres();
+      loadStations().catch(function () {});
+      syncUrl();
+    });
+
+    /* About / help / themes -------------------------------------------- */
+    on("about-btn", openAbout);
+    on("about-close", function () { closeAbout(); });
+    on("help-close", function () { closeHelp(); });
+    const themeGrid = $("theme-grid");
+    if (themeGrid) {
+      themeGrid.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-tid]");
+        if (btn) setTheme(btn.dataset.tid);
+      });
+    }
+
+    /* Player controls --------------------------------------------------- */
+    const audio = $("audio");
+    if (audio) {
+      audio.addEventListener("playing", function () {
+        if (!state.current) return;
+        if (state.playing) return;
+        onAudioStarted(state.playGen);
+      });
+      audio.addEventListener("pause", function () {
+        if (state.ignoreErr) return;
+        state.playing = false;
+        state.buffering = false;
+        clockListen(false);
+        renderPlayer();
+        saveStats();
+      });
+      audio.addEventListener("waiting", function () {
+        if (!state.current || state.status === t("failed")) return;
+        state.buffering = true;
+        renderPlayer();
+      });
+      audio.addEventListener("canplay", function () {
+        if (!state.buffering) return;
+        state.buffering = false;
+        renderPlayer();
+      });
+      audio.addEventListener("error", function () {
+        if (state.ignoreErr || state.scanning) return;
+        failSkip();
+      });
+      audio.addEventListener("ended", function () {
+        if (state.scanning) return;
+        failSkip();
+      });
+      audio.addEventListener("loadedmetadata", function () {
+        if (state.ignoreErr) return;
+        clearWatchdog();
+      });
+    }
+    document.querySelectorAll("[data-vol]").forEach(function (el) {
+      el.addEventListener("input", function () { setVol(el.value); });
+      el.addEventListener("change", function () { setVol(el.value); });
+    });
+    document.querySelectorAll("[data-preset], [data-act='seeall']").forEach(function (el) {
+      el.setAttribute("draggable", "false");
+    });
+
+    /* Presets: tap to play, hold to store ------------------------------- */
+    let hold = 0;
+    let held = false;
+    let holdTarget = null;
+    function startHold(e) {
+      const btn = e.target.closest("[data-preset]");
+      if (!btn) return;
+      holdTarget = btn;
+      held = false;
+      clearTimeout(hold);
+      hold = setTimeout(function () {
+        held = true;
+        savePreset(Number(btn.dataset.preset));
+        if (navigator.vibrate) {
+          try { navigator.vibrate(20); } catch (_) {}
+        }
+      }, 620);
+    }
+    function endHold() {
+      clearTimeout(hold);
+      hold = 0;
+      holdTarget = null;
+    }
+    document.addEventListener("pointerdown", startHold, { passive: true });
+    document.addEventListener("pointerup", endHold, { passive: true });
+    document.addEventListener("pointercancel", endHold, { passive: true });
+    document.addEventListener("click", function (e) {
+      const btn = e.target.closest("[data-preset]");
+      if (!btn) return;
+      if (held && holdTarget === btn) {
+        held = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      const i = Number(btn.dataset.preset);
+      if (e.shiftKey || e.altKey) savePreset(i);
+      else playPreset(i);
+    });
+
+    /* Sleep / alarm ----------------------------------------------------- */
+    const chips = $("sleep-chips");
+    if (chips) {
+      chips.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-sleep]");
+        if (btn) setSleep(Number(btn.dataset.sleep));
+      });
+    }
+    const alarmOn = $("alarm-on");
+    if (alarmOn) {
+      alarmOn.addEventListener("change", function () {
+        readAlarmUi();
+        if (state.alarm.on && typeof Notification !== "undefined" && Notification.permission === "default") {
+          try { Notification.requestPermission(); } catch (_) {}
+        }
+      });
+    }
+    const alarmTime = $("alarm-time");
+    if (alarmTime) alarmTime.addEventListener("change", readAlarmUi);
+
+    /* Import / install / language --------------------------------------- */
+    const file = $("import-file");
+    if (file) {
+      file.addEventListener("change", function () {
+        const picked = file.files && file.files[0];
+        importFavs(picked);
+        file.value = "";
+      });
+    }
+    addEventListener("beforeinstallprompt", function (e) {
+      e.preventDefault();
+      state.installPrompt = e;
+      syncInstallUi();
+    });
+    addEventListener("appinstalled", function () {
+      state.installed = true;
+      state.installPrompt = null;
+      syncInstallUi();
+      toast(t("installed"));
+    });
+    document.addEventListener("click", function (e) {
+      const langBtn = e.target.closest("[data-lang]");
+      if (langBtn) setLang(langBtn.dataset.lang);
+    });
+
+    /* One delegated action handler -------------------------------------- */
     function onAct(e) {
       const btn = e.target.closest("[data-act]");
       if (!btn) return;
@@ -2511,267 +3956,232 @@
       else if (act === "next") playRel(1);
       else if (act === "rand") playRandom();
       else if (act === "fav") toggleFav(state.current);
-      else if (act === "expand") openStage();
+      else if (act === "expand") {
+        closeFilters();
+        closeSettings();
+        openStage();
+      }
       else if (act === "collapse") closeStage();
       else if (act === "mute") toggleMute();
       else if (act === "share") shareStation(state.current);
+      else if (act === "copy") copyStation(state.current);
       else if (act === "vote") voteStation(state.current);
       else if (act === "export") exportFavs();
       else if (act === "import") {
-        const f = $("import-file");
-        if (f) f.click();
-      }
-      else if (act === "help") openHelp();
+        const input = $("import-file");
+        if (input) input.click();
+      } else if (act === "help") openHelp();
       else if (act === "scan") startScan();
       else if (act === "stand") toggleStand();
       else if (act === "snooze") snooze();
       else if (act === "hd") toggleHd();
       else if (act === "tg") shareTelegram(state.current);
-      else if (act === "map") toggleMap();
-      else if (act === "car") toggleCar();
+      else if (act === "map") {
+        closeFilters();
+        closeSettings();
+        toggleMap();
+      } else if (act === "car") {
+        closeFilters();
+        closeSettings();
+        toggleCar();
+      }
       else if (act === "newfolder") newFolder();
       else if (act === "addfolder") addToFolder();
       else if (act === "filters") toggleFilters();
       else if (act === "settings") toggleSettings();
       else if (act === "clearf") clearFilters();
       else if (act === "near") goNear();
-      else if (act === "theme") { closeSettings(); toggleThemes(); }
-      else if (act === "wrap") { closeSettings(); toggleWrap(); }
-      else if (act === "voice") startVoice();
+      else if (act === "theme") {
+        closeSettings();
+        toggleThemes();
+      } else if (act === "wrap") {
+        closeSettings();
+        toggleWrap();
+      } else if (act === "voice") startVoice();
       else if (act === "sleeptog") cycleSleep();
-      else if (act === "seeall") { state.homeAll = true; renderList(); const L=$("list"); if(L) L.scrollTop=0; }
-      else if (act === "live") toggleLive();
-      else if (act === "install") {
-        if (window._freqPrompt) {
-          window._freqPrompt.prompt();
-          window._freqPrompt = null;
-          const b = $("install-btn");
-          if (b) b.hidden = true;
-        }
+      else if (act === "seeall") {
+        state.homeAll = true;
+        renderList();
+        const box = $("list");
+        if (box) box.scrollTop = 0;
+      } else if (act === "install") installApp();
+      else if (act === "geo") enableGeo();
+      else if (act === "retry") retryLoad();
+      else if (act === "update") checkForUpdates();
+      else if (act === "reset") {
+        if (window.confirm(t("resetTitle") + "\n" + t("resetBody"))) resetAllData();
       }
     }
     document.addEventListener("click", onAct);
-    document.addEventListener("click", function (e) {
-      const btn = e.target.closest("[data-preset]");
-      if (!btn) return;
-      if (savedHold) {
-        savedHold = false;
-        e.preventDefault();
-        return;
-      }
-      playPreset(Number(btn.dataset.preset));
-    });
-    let holdT = 0;
-    let savedHold = false;
-    document.addEventListener("pointerdown", function (e) {
-      const btn = e.target.closest("[data-preset]");
-      if (!btn) return;
-      const i = Number(btn.dataset.preset);
-      savedHold = false;
-      holdT = setTimeout(function () {
-        savePreset(i);
-        savedHold = true;
-        holdT = 0;
-      }, 650);
-    });
-    document.addEventListener("pointerup", function () {
-      if (holdT) clearTimeout(holdT);
-      holdT = 0;
-    });
-    document.addEventListener("pointercancel", function () {
-      if (holdT) clearTimeout(holdT);
-      holdT = 0;
-    });
-    const chips = $("sleep-chips");
-    if (chips) {
-      chips.addEventListener("click", (e) => {
-        const btn = e.target.closest("[data-sleep]");
-        if (!btn) return;
-        setSleep(Number(btn.dataset.sleep));
-      });
-    }
-    document.querySelectorAll("[data-vol]").forEach(function (el) {
-      el.addEventListener("input", function (e) { setVol(e.target.value); });
-    });
-    const playerEl = $("player");
-    if (playerEl) {
-      let px = 0, py = 0, pswipe = false;
-      playerEl.addEventListener("touchstart", function (e) {
-        px = e.touches[0].clientX;
-        py = e.touches[0].clientY;
-        pswipe = true;
+
+    /* Gestures ---------------------------------------------------------- */
+    function swipe(el, opts) {
+      if (!el) return;
+      let x0 = 0;
+      let y0 = 0;
+      let active = false;
+      el.addEventListener("touchstart", function (e) {
+        const first = e.touches[0];
+        x0 = first.clientX;
+        y0 = first.clientY;
+        active = !opts.topOnly || y0 < 110;
       }, { passive: true });
-      playerEl.addEventListener("touchend", function (e) {
-        if (!pswipe) return;
-        const dx = e.changedTouches[0].clientX - px;
-        const dy = e.changedTouches[0].clientY - py;
-        if (Math.abs(dx) > 72 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      el.addEventListener("touchend", function (e) {
+        if (!active) return;
+        active = false;
+        const first = e.changedTouches[0];
+        const dx = first.clientX - x0;
+        const dy = first.clientY - y0;
+        if (Math.abs(dx) > 64 && Math.abs(dx) > Math.abs(dy) * 1.25) {
           const rtl = document.documentElement.dir === "rtl";
           playRel((dx > 0) === rtl ? 1 : -1);
+        } else if (opts.downToClose && dy > 108 && Math.abs(dy) > Math.abs(dx)) {
+          opts.downToClose();
         }
-        pswipe = false;
       }, { passive: true });
     }
+    swipe($("player"), {});
+    swipe($("stage"), { topOnly: true, downToClose: closeStage });
 
-    let sy = 0;
-    let swipeOk = false;
-    const stageEl = $("stage");
-    if (stageEl) {
-      stageEl.addEventListener(
-        "touchstart",
-        (e) => {
-          sy = e.touches[0].clientY;
-          swipeOk = sy < 90;
-        },
-        { passive: true }
-      );
-      stageEl.addEventListener(
-        "touchend",
-        (e) => {
-          if (!swipeOk) return;
-          const dy = e.changedTouches[0].clientY - sy;
-          if (dy > 110) closeStage();
-        },
-        { passive: true }
-      );
-    }
-
-    $("audio").addEventListener("pause", () => {
-      if (state.ignoreErr) return;
-      state.playing = false;
-      clockListen(false);
-      renderPlayer();
-    });
-    $("audio").addEventListener("play", () => {
-      state.playing = true;
-      state.status = "";
-      clockListen(true);
-      renderPlayer();
-    });
-    $("audio").addEventListener("error", () => {
-      if (state.ignoreErr || state.scanning) return;
-      failSkip();
-    });
-    $("about-btn").addEventListener("click", () => {
-      $("about").hidden = false;
-    });
-    $("about-close").addEventListener("click", () => {
-      $("about").hidden = true;
-    });
-    $("about").addEventListener("click", (e) => {
-      if (e.target.id === "about") $("about").hidden = true;
-    });
-    const themeGrid = $("theme-grid");
-    if (themeGrid) {
-      themeGrid.addEventListener("click", function (e) {
-        const btn = e.target.closest("[data-tid]");
-        if (!btn) return;
-        setTheme(btn.dataset.tid);
-      });
-    }
-    const themesEl = $("themes");
-    if (themesEl) {
-      themesEl.addEventListener("click", function (e) {
-        if (e.target.id === "themes") closeThemes();
-      });
-    }
-    const filtersEl = $("filters");
-    if (filtersEl) {
-      filtersEl.addEventListener("click", function (e) {
-        if (e.target.id === "filters") closeFilters();
-      });
-    }
-    const settingsEl = $("settings");
-    if (settingsEl) {
-      settingsEl.addEventListener("click", function (e) {
-        if (e.target.id === "settings") closeSettings();
-      });
-    }
-    addEventListener("keydown", (e) => {
-      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
-      if (e.code === "Space") {
+    /* Keyboard ---------------------------------------------------------- */
+    addEventListener("keydown", function (e) {
+      trapTab(e);
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape") {
+        if (consumeBack()) e.preventDefault();
+        return;
+      }
+      const tag = (e.target && e.target.tagName) || "";
+      const typing =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        (e.target && e.target.isContentEditable);
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === " " || e.code === "Space") {
+        if (tag === "BUTTON" || tag === "A") return;
         e.preventDefault();
         toggle();
-      }
-      if (e.key === "Escape") {
-        if (consumeBack()) return;
-        closeStage();
-        closeHelp();
-        closeStand();
-        closeMap();
-        closeCar();
-        closeThemes();
-        closeWrap();
-        closeFilters();
-        closeSettings();
-        closeSheet();
-        closeAbout();
-      }
-      if (e.key === "n" || e.key === "N") playRel(1);
-      if (e.key === "p" || e.key === "P") playRel(-1);
-      if (e.key === "r" || e.key === "R") playRandom();
-      if (e.key === "f" || e.key === "F") toggleFav(state.current);
-      if (e.key === "s" || e.key === "S") shareStation(state.current);
-      if (e.key === "?" || e.key === "h" || e.key === "H") {
-        if (e.key === "h" || e.key === "H") goHere();
-        else openHelp();
-      }
-      if (e.key === "?") openHelp();
-      if (e.key >= "1" && e.key <= "6") {
+      } else if (e.key === "/") {
+        e.preventDefault();
+        const q = $("q");
+        if (q) q.focus();
+      } else if (e.key === "n" || e.key === "N") playRel(1);
+      else if (e.key === "p" || e.key === "P") playRel(-1);
+      else if (e.key === "r" || e.key === "R") playRandom();
+      else if (e.key === "f" || e.key === "F") toggleFav(state.current);
+      else if (e.key === "s" || e.key === "S") shareStation(state.current);
+      else if (e.key === "h" || e.key === "H") goHere();
+      else if (e.key === "?") openHelp();
+      else if (e.key === "k" || e.key === "K") startScan();
+      else if (e.key === "c" || e.key === "C") toggleStand();
+      else if (e.key === "m" || e.key === "M") toggleMap();
+      else if (e.key === "v" || e.key === "V") toggleCar();
+      else if (e.key === "t" || e.key === "T") { closeSettings(); toggleThemes(); }
+      else if (e.key === "y" || e.key === "Y") { closeSettings(); toggleWrap(); }
+      else if (e.key >= "1" && e.key <= "6") {
         const i = Number(e.key) - 1;
         if (e.shiftKey) savePreset(i);
         else playPreset(i);
       }
-      if (e.key === "k" || e.key === "K") startScan();
-      if (e.key === "c" || e.key === "C") toggleStand();
-      if (e.key === "m" || e.key === "M") toggleMap();
-      if (e.key === "v" || e.key === "V") toggleCar();
     });
+
+    /* Media session ----------------------------------------------------- */
     if ("mediaSession" in navigator) {
       try {
-        navigator.mediaSession.setActionHandler("play", () => {
-          if (!state.playing) toggle();
+        navigator.mediaSession.setActionHandler("play", function () { if (!state.playing) toggle(); });
+        navigator.mediaSession.setActionHandler("pause", function () { if (state.playing) toggle(); });
+        navigator.mediaSession.setActionHandler("nexttrack", function () { playRel(1); });
+        navigator.mediaSession.setActionHandler("previoustrack", function () { playRel(-1); });
+        navigator.mediaSession.setActionHandler("stop", function () {
+          const audio = $("audio");
+          if (audio) audio.pause();
         });
-        navigator.mediaSession.setActionHandler("pause", () => {
-          if (state.playing) toggle();
-        });
-        navigator.mediaSession.setActionHandler("nexttrack", () => playRel(1));
-        navigator.mediaSession.setActionHandler("previoustrack", () => playRel(-1));
       } catch (_) {}
     }
-    setInterval(() => {
-      sleepTick();
-      if (state.playing || state.sleepAt) {
-        if ($("s-time")) $("s-time").textContent = fmtTime(listenElapsed());
-        updateSleepLeft();
-      }
+
+    /* Network state ----------------------------------------------------- */
+    addEventListener("online", function () {
+      markOnline();
+      retryLoad();
+    });
+    addEventListener("offline", function () { markOffline(); });
+
+    /* Persistence + clock ----------------------------------------------- */
+    addEventListener("pagehide", function () { saveStats(true); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) saveStats(true);
+    });
+    setInterval(function () {
+      if (state.sleepAt) sleepTick();
       if (state.playing) {
         flushListen();
-        try {
-          localStorage.setItem("freq-stats", JSON.stringify(state.stats));
-        } catch (_) {}
+        saveStats();
       }
       tickClock();
-      tickStand();
+      if (state.night) tickStand();
+      updateSleepLeft();
       checkAlarm();
     }, 1000);
+    setInterval(renderDirectoryStats, 60000);
   }
 
   function hideLoader() {
     const el = $("loader");
-    if (el) el.classList.add("off");
+    if (!el || el.hidden) return;
+    el.classList.remove("failed");
+    el.classList.add("off");
+    el.setAttribute("aria-hidden", "true");
+    setTimeout(function () {
+      if (el.classList.contains("off")) el.hidden = true;
+    }, 700);
   }
+  function showLoadError() {
+    const el = $("loader");
+    if (!el) return;
+    el.hidden = false;
+    el.classList.remove("off");
+    el.classList.add("failed");
+    el.removeAttribute("aria-hidden");
+    setText("load-sub", t("loadError"));
+    const retry = $("load-retry");
+    if (retry) retry.hidden = false;
+  }
+
   async function boot() {
+    const bootAt = Date.now();
+    setTimeout(function () {
+      if (!state.stations.length) hideLoader();
+    }, 12000);
     try {
+      applyTheme();
+      readUrlState();
       applyI18n();
+      syncVersion();
+      syncAlarmUi();
+      renderPresets();
+      renderWaves();
+      renderBands();
+      syncHdBtn();
+      renderFolders();
+      renderLangs();
+      renderSorts();
+      renderGenres();
+      renderCountries();
+      renderSleep();
+      renderDirectoryStats();
+      renderSearchHints();
+      syncGeoBtn();
+      if (state.offline) setNetBar(true);
+      setVol(state.userVol, true);
+      renderPlayer();
+      tickClock();
+      tickStand();
+      updateSleepLeft();
+      syncDockSleep();
+      hideExploreTipIfSeen();
       bind();
-      try { startLive(); } catch (_) {}
-      viz();
-      playerWave();
-      stageRing();
-      const vol = Number(localStorage.getItem("freq-vol") || "0.85");
-      setVol(Number.isFinite(vol) ? vol : 0.85);
-      if (state.current) renderPlayer();
+      startFx();
       syncChrome();
       if (typeof ResizeObserver !== "undefined" && $("player")) {
         const ro = new ResizeObserver(function () { syncChrome(); });
@@ -2779,39 +4189,39 @@
       }
       addEventListener("resize", syncChrome);
     } catch (err) {
-      const sub = $("load-sub");
-      if (sub) sub.textContent = String(err && err.message ? err.message : err);
+      showLoadError();
+      if (window.console && console.error) console.error("FREQ boot", err);
+      return;
     }
-    setTimeout(hideLoader, 12000);
+
     try {
       await loadStations();
-      renderPlayer();
-      renderPresets();
-      tickClock();
-      await applyDeepLink();
-      loadWeather().catch(function () {});
-      loadDiscover().catch(function () {});
-      loadNear().catch(function () {});
-      applyTheme();
-      if (navigator.serviceWorker) {
-        navigator.serviceWorker.getRegistrations().then(function (rs) {
-          rs.forEach(function (r) { r.unregister(); });
-        }).catch(function () {});
-      }
-    } catch (err) {
-      const line = $("count-line");
-      if (line) line.textContent = String(err && err.message ? err.message : err);
-      if (!state.stations.length && (state.favs.length || state.recents.length)) {
-        state.mode = state.favs.length ? "fav" : "recent";
-        state.stations = (state.mode === "fav" ? state.favs : state.recents).slice();
-        try {
-          renderCountries();
-          renderList();
-        } catch (_) {}
-      }
-    } finally {
+    } catch (_) {}
+    if (state.error && !state.stations.length) {
+      if (Date.now() - bootAt < 12000) showLoadError();
+    } else {
       hideLoader();
     }
+    renderPlayer();
+    renderPresets();
+    if (state.deepLinkStation) {
+      try {
+        await applyDeepLink();
+      } catch (_) {}
+      state.deepLinkPending = false;
+      state.deepLinkStation = "";
+    }
+    if (state.wantsRandom) {
+      state.wantsRandom = false;
+      setTimeout(playRandom, 600);
+    }
+    loadDirectoryStats();
+    loadCountries();
+    loadWeather();
+    loadDiscover();
+    if (state.geo) loadNear();
+    registerSW();
   }
+
   boot();
 })();

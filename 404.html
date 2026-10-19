@@ -1,11 +1,76 @@
 <!DOCTYPE html>
-<html lang="fa">
+<html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <title>FREQ</title>
-    <script>
-      location.replace(location.pathname.indexOf("/freq") === 0 ? "/freq/" : "./index.html");
-    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#09090b" />
+    <title>FREQ — صفحه پیدا نشد / Page not found</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        min-height: 100dvh; display: grid; place-items: center; padding: 24px;
+        background:
+          radial-gradient(ellipse at 50% -20%, rgba(255, 77, 46, 0.22), transparent 46%),
+          radial-gradient(ellipse at 90% 90%, rgba(125, 211, 252, 0.1), transparent 44%),
+          #09090b;
+        color: #f4f4f5;
+        font-family: "Vazirmatn", system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+      }
+      main {
+        width: min(540px, 100%); padding: 38px 26px 32px;
+        background: rgba(24, 24, 28, 0.72); border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 28px; backdrop-filter: blur(18px);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+      }
+      .vinyl {
+        width: 92px; height: 92px; margin: 0 auto 18px; border-radius: 999px;
+        display: grid; place-items: center;
+        background:
+          radial-gradient(circle at 50% 50%, #18181b 0 18%, transparent 19%),
+          repeating-radial-gradient(circle at 50% 50%, #26262c 0 2px, #111114 3px 7px),
+          #111114;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      }
+      .vinyl b {
+        width: 26px; height: 26px; border-radius: 999px;
+        display: grid; place-items: center;
+        background: #ff4d2e; color: #fff; font: 800 11px "IBM Plex Mono", monospace;
+      }
+      .word { font-weight: 800; letter-spacing: 0.34em; font-size: 14px; margin-bottom: 10px; }
+      h1 { font-size: clamp(22px, 6vw, 30px); line-height: 1.45; }
+      .fa { color: #f4f4f5; }
+      .en { color: #a1a1aa; font-size: 14px; margin-top: 6px; direction: ltr; }
+      p { color: #a1a1aa; font-size: 13px; line-height: 1.9; margin: 16px 0 22px; }
+      .acts { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+      a {
+        display: inline-block; text-decoration: none; font-weight: 800; font-size: 14px;
+        border-radius: 999px; padding: 11px 20px;
+      }
+      .primary { background: #ff4d2e; color: #fff; }
+      .ghost { border: 1px solid rgba(255, 255, 255, 0.16); color: #f4f4f5; }
+      a:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
+      footer { margin-top: 22px; color: #71717a; font-size: 11px; }
+    </style>
   </head>
-  <body>FREQ…</body>
+  <body>
+    <main>
+      <div class="vinyl" aria-hidden="true"><b>404</b></div>
+      <div class="word" dir="ltr">FREQ</div>
+      <h1 class="fa">این موج وجود ندارد</h1>
+      <h2 class="en">This frequency is not on air</h2>
+      <p>
+        آدرسی که باز کردی پیدا نشد. برگرد به رادیوی زنده.<br />
+        The page you asked for is missing — head back to the live dial.
+      </p>
+      <div class="acts">
+        <a class="primary" href="./">برگرد به FREQ</a>
+        <a class="ghost" href="https://pillow1243.github.io/freq/" hreflang="en">Back to FREQ</a>
+      </div>
+      <footer>ساخته شده توسط مبین.آ · Made by Mobin.A</footer>
+    </main>
+  </body>
 </html>

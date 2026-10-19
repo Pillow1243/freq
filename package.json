@@ -1,0 +1,30 @@
+{
+  "name": "freq",
+  "version": "2.0.1",
+  "private": true,
+  "description": "FREQ — live radio of the world. A fast, installable, offline-first radio PWA by Mobin.A.",
+  "homepage": "https://pillow1243.github.io/freq/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pillow1243/freq.git"
+  },
+  "author": "Mobin.A (https://t.me/MobinA_programs)",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "start": "node scripts/dev-server.mjs",
+    "serve:py": "python3 server.py",
+    "test": "node --test",
+    "lint": "eslint .",
+    "check": "node scripts/check.mjs",
+    "verify": "npm run check && npm run lint && npm test"
+  },
+  "devDependencies": {
+    "eslint": "^9.13.0",
+    "globals": "^15.11.0",
+    "jsdom": "^25.0.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

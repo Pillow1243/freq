@@ -2,92 +2,182 @@
 <html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; script-src 'self' 'sha256-wNWXIBDIhYqr6KMCYL+Ofm/1fnQ7vlY8NvpGV7j7BMI='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https: http:; connect-src 'self' https://*.api.radio-browser.info https://api.radio-browser.info https://*.open-meteo.com; worker-src 'self'; manifest-src 'self'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="format-detection" content="telephone=no" />
     <title>FREQ — Live radio · Made by Mobin.A</title>
     <meta name="author" content="Mobin.A / مبین.آ" />
     <meta name="theme-color" content="#09090b" />
-    <meta name="description" content="FREQ — live radio of the world. رادیوی زندهٔ جهان. ساخته شده توسط مبین.آ" />
+    <meta
+      name="description"
+      content="FREQ — live radio of the world. Thousands of stations, map, car mode, offline favourites, sleep timer and 20 themes. رادیوی زندهٔ جهان، ساخته شده توسط مبین.آ"
+    />
+    <meta name="keywords" content="FREQ, live radio, internet radio, رادیو, رادیوی زنده, رادیو اینترنتی, Mobin.A, PWA" />
+    <link rel="canonical" href="https://pillow1243.github.io/freq/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Mobin.A" />
     <meta property="og:url" content="https://pillow1243.github.io/freq/" />
     <meta property="og:title" content="FREQ — Live radio of the world" />
-    <meta property="og:description" content="رادیوی زندهٔ جهان. ساخته شده توسط مبین.آ" />
+    <meta property="og:description" content="رادیوی زندهٔ جهان. هزاران ایستگاه، نقشه، حالت ماشین، آفلاین و ۲۰ تم. ساخته شده توسط مبین.آ" />
     <meta property="og:image" content="https://pillow1243.github.io/freq/assets/og.png" />
+    <meta property="og:image:alt" content="FREQ — Live radio of the world" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:locale" content="fa_IR" />
+    <meta property="og:locale:alternate" content="en_US" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="FREQ — Live radio of the world" />
     <meta name="twitter:description" content="رادیوی زندهٔ جهان. ساخته شده توسط مبین.آ" />
     <meta name="twitter:image" content="https://pillow1243.github.io/freq/assets/og.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png?v=21" />
-    <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png?v=21" />
-    <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png?v=21" />
-    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=32" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png?v=32" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png?v=32" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png?v=32" />
+    <link rel="manifest" href="./manifest.webmanifest?v=32" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="FREQ" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://de1.api.radio-browser.info" crossorigin />
+    <link rel="dns-prefetch" href="https://fi1.api.radio-browser.info" />
+    <link rel="dns-prefetch" href="https://nl1.api.radio-browser.info" />
+    <link rel="dns-prefetch" href="https://all.api.radio-browser.info" />
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@700;800&family=Vazirmatn:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=30" />
+    <link rel="stylesheet" href="./styles.css?v=32" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "FREQ",
+        "alternateName": "FREQ — رادیوی زندهٔ جهان",
+        "url": "https://pillow1243.github.io/freq/",
+        "description": "Live radio of the world: thousands of stations, map, car mode, sleep timer, favourites, folders, 20 themes and offline support. رادیوی زندهٔ جهان ساخته شده توسط مبین.آ",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript and audio playback",
+        "inLanguage": ["fa", "en"],
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": {
+          "@type": "Person",
+          "name": "Mobin.A",
+          "alternateName": "مبین.آ",
+          "url": "https://t.me/MobinA_programs"
+        },
+        "image": "https://pillow1243.github.io/freq/assets/og.png"
+      }
+    </script>
   </head>
   <body>
-    <canvas id="viz"></canvas>
-    <div class="vignette"></div>
-    <div class="grain"></div>
+    <a class="skip-link" href="#list" data-i18n="skipToStations">Skip to stations</a>
+    <h1 class="sr-only">FREQ — <span data-i18n="tag">Live radio of the world</span></h1>
+
+    <canvas id="viz" aria-hidden="true"></canvas>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <div id="offline" class="net-bar" role="status" aria-live="polite" hidden>
+      <span class="net-dot" aria-hidden="true"></span>
+      <span id="offline-text" data-i18n="offlineBody">You're offline — showing what we saved for you.</span>
+      <button type="button" class="ghost wide" data-act="retry" data-i18n="retry">Retry</button>
+    </div>
 
     <header class="top">
       <button class="brand" id="about-btn" type="button">
-        <img src="./assets/icon-192.png?v=21" width="40" height="40" alt="FREQ" />
-        <div>
-          <div class="word" dir="ltr">FREQ</div>
-          <div class="tag" data-i18n="tag">رادیوی زندهٔ جهان</div>
-        </div>
+        <img src="./assets/icon-192.png?v=32" width="40" height="40" alt="FREQ" />
+        <span class="brand-txt">
+          <span class="word" dir="ltr">FREQ</span>
+          <span class="tag" data-i18n="tag">رادیوی زندهٔ جهان</span>
+        </span>
       </button>
-      <form id="search-form" class="search">
-        <input id="q" type="search" autocomplete="off" data-i18n-placeholder="search" placeholder="جستجوی ایستگاه، سبک، شهر…" />
+      <form id="search-form" class="search" role="search">
+        <label class="sr-only" for="q" data-i18n="search">Search station, genre, city…</label>
+        <input
+          id="q"
+          type="search"
+          list="search-hints"
+          aria-controls="list"
+          autocomplete="off"
+          enterkeyhint="search"
+          data-i18n-placeholder="search"
+          data-i18n-aria="search"
+          placeholder="جستجوی ایستگاه، سبک، شهر…"
+        />
+        <datalist id="search-hints"></datalist>
         <button type="button" class="mic" data-act="voice" id="mic-btn" data-i18n-aria="voice">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.6a3.2 3.2 0 0 0 3.2-3.2V6.8a3.2 3.2 0 1 0-6.4 0v4.6A3.2 3.2 0 0 0 12 14.6zm6.2-3.2a6.2 6.2 0 0 1-12.4 0H4.2a7.8 7.8 0 0 0 7 7.55V21h1.6v-2.05a7.8 7.8 0 0 0 7-7.55h-1.6z"/></svg>
         </button>
       </form>
-      <button type="button" class="icon-btn" data-act="filters" id="filters-btn" data-i18n-aria="filters">
+      <button
+        type="button"
+        class="icon-btn"
+        data-act="filters"
+        id="filters-btn"
+        data-i18n-aria="filters"
+        aria-controls="filters"
+        aria-expanded="false"
+      >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.2h16v2H4v-2zm3 4.8h10v2H7v-2zm3 4.8h4v2h-4v-2z"/></svg>
       </button>
-      <button type="button" class="icon-btn" data-act="settings" id="settings-btn" data-i18n-aria="settings">
+      <button
+        type="button"
+        class="icon-btn"
+        data-act="settings"
+        id="settings-btn"
+        data-i18n-aria="settings"
+        aria-controls="settings"
+        aria-expanded="false"
+      >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M10.1 2.6h3.8l.27 1.92c.58.21 1.12.5 1.62.86l1.86-.75 1.9 3.3-1.58 1.23c.12.52.18 1.07.18 1.64s-.06 1.12-.18 1.64l1.58 1.23-1.9 3.3-1.86-.75a6.9 6.9 0 0 1-1.62.86l-.27 1.92h-3.8l-.27-1.92a6.9 6.9 0 0 1-1.62-.86l-1.86.75-1.9-3.3 1.58-1.23A6.9 6.9 0 0 1 4.6 10.8c0-.57.06-1.12.18-1.64L3.2 7.93l1.9-3.3 1.86.75c.5-.36 1.04-.65 1.62-.86l.27-1.92zM12 15.25a3.45 3.45 0 1 0 0-6.9 3.45 3.45 0 0 0 0 6.9z"/></svg>
       </button>
     </header>
+
     <div class="slim">
-      <div class="count-line" id="count-line"></div>
-      <div class="live-pill" id="live-pill" data-i18n-aria="onlinePeople">
+      <div class="count-line" id="count-line" role="status" aria-live="polite"></div>
+      <div class="live-pill" id="live-pill" role="status" aria-live="off">
         <i class="live-dot" aria-hidden="true"></i>
         <b id="live-n">—</b>
-        <span data-i18n="online">Online</span>
+        <span data-i18n="stationsLive">Live stations</span>
       </div>
     </div>
+
     <button type="button" class="neon-tip" data-act="filters" id="neon-tip">
       <span data-i18n="explore">For a better browse of every channel, tap this text — or tap the filter button at the top.</span>
     </button>
 
-    <div id="filters" class="drawer" hidden>
+    <div id="filters" class="drawer" role="dialog" aria-modal="true" aria-labelledby="filters-title" hidden>
       <div class="drawer-card">
-        <div class="drawer-handle"></div>
+        <div class="drawer-handle" aria-hidden="true"></div>
         <div class="drawer-head">
-          <h3 data-i18n="filterNet">فیلتر شبکه</h3>
+          <h3 id="filters-title" data-i18n="filterNet">فیلتر شبکه</h3>
           <button type="button" class="ghost wide" data-act="filters" data-i18n="close">بستن</button>
         </div>
         <div class="drawer-quick">
           <button type="button" class="ghost wide keys-btn" data-act="near" data-i18n="near">نزدیک</button>
-          <button type="button" class="ghost wide keys-btn" data-act="hd" id="hd-btn">HD</button>
+          <button type="button" class="ghost wide keys-btn" data-act="hd" id="hd-btn" aria-pressed="false">HD</button>
           <button type="button" class="ghost wide keys-btn" data-act="clearf" id="clear-btn" hidden data-i18n="clear">پاک کردن</button>
         </div>
-        <div class="sorts" id="sorts"></div>
+        <div class="sorts" id="sorts" role="group" aria-label="Sort"></div>
         <div class="filter-lab" data-i18n="places">کشورها</div>
+        <label class="sr-only" for="country-q" data-i18n="findCountry">Find a country</label>
+        <input
+          id="country-q"
+          class="filter-search"
+          type="search"
+          autocomplete="off"
+          data-i18n-placeholder="findCountry"
+          placeholder="کشور را پیدا کن…"
+        />
         <div class="countries" id="countries"></div>
         <div class="filter-lab" data-i18n="genres">سبک‌ها</div>
         <div class="countries genres" id="genres"></div>
@@ -102,22 +192,42 @@
       </div>
     </div>
 
-    <div id="settings" class="drawer" hidden>
+    <div id="settings" class="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
       <div class="drawer-card">
-        <div class="drawer-handle"></div>
+        <div class="drawer-handle" aria-hidden="true"></div>
         <div class="drawer-head">
-          <h3 data-i18n="settings">تنظیمات</h3>
+          <h3 id="settings-title" data-i18n="settings">تنظیمات</h3>
           <button type="button" class="ghost wide" data-act="settings" data-i18n="close">بستن</button>
         </div>
         <div class="set-row">
-          <span data-i18n="langs">زبان</span>
-          <div class="lang-switch">
+          <span id="lang-label" data-i18n="langs">زبان</span>
+          <div class="lang-switch" role="group" aria-labelledby="lang-label">
             <button type="button" data-lang="fa" class="on">فا</button>
             <button type="button" data-lang="en">EN</button>
           </div>
         </div>
-        <button type="button" class="set-item" data-act="theme" id="theme-btn" data-i18n="theme">تم</button>
-        <button type="button" class="set-item" data-act="wrap" id="wrap-btn" data-i18n="wrap">آمار</button>
+        <button
+          type="button"
+          class="set-item"
+          data-act="theme"
+          id="theme-btn"
+          data-i18n="theme"
+          aria-controls="themes"
+          aria-expanded="false"
+        >تم</button>
+        <button
+          type="button"
+          class="set-item"
+          data-act="wrap"
+          id="wrap-btn"
+          data-i18n="wrap"
+          aria-controls="wrap"
+          aria-expanded="false"
+        >آمار</button>
+        <div class="set-row">
+          <span id="geo-label" data-i18n="location">موقعیت</span>
+          <button type="button" class="ghost wide keys-btn" data-act="geo" id="geo-btn" data-i18n="useLocation">استفاده از موقعیت من</button>
+        </div>
         <button type="button" class="set-item" data-act="install" id="install-btn" hidden data-i18n="install">نصب اپ</button>
         <div class="set-grid">
           <button type="button" class="ghost wide keys-btn" data-act="scan" data-i18n="scan">اسکن</button>
@@ -125,36 +235,40 @@
           <button type="button" class="ghost wide keys-btn" data-act="map" data-i18n="map">نقشه</button>
           <button type="button" class="ghost wide keys-btn" data-act="car" data-i18n="car">ماشین</button>
           <button type="button" class="ghost wide keys-btn" data-act="help" data-i18n="keys">کلیدها</button>
+          <button type="button" class="ghost wide keys-btn" data-act="update" data-i18n="update">به‌روزرسانی</button>
+          <button type="button" class="ghost wide keys-btn dangerous" data-act="reset" data-i18n="reset">پاک کردن داده‌ها</button>
         </div>
+        <p class="set-ver" id="set-ver" dir="ltr">FREQ · v2.0.1</p>
       </div>
     </div>
 
-    <main class="list" id="list"></main>
+    <main class="list" id="list" aria-label="Radio stations"></main>
 
-    <footer class="player" id="player">
+    <footer class="player" id="player" aria-label="Player">
       <div class="tuner" aria-hidden="true">
         <div class="tuner-scale">
           <span>88</span><span>92</span><span>96</span><span>100</span><span>104</span><span>108</span>
         </div>
         <div class="needle" id="p-needle"></div>
       </div>
-      <canvas id="p-wave" class="p-wave"></canvas>
+      <canvas id="p-wave" class="p-wave" aria-hidden="true"></canvas>
       <div class="dock">
         <button type="button" class="art-btn" data-act="expand" data-i18n-aria="expand">
           <span class="vinyl" id="p-vinyl">
-            <img id="p-ico" alt="" referrerpolicy="no-referrer" hidden />
+            <img id="p-ico" alt="" referrerpolicy="no-referrer" decoding="async" hidden />
             <span id="p-ph" class="art-ph">F</span>
           </span>
           <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="buf" aria-hidden="true"></span>
         </button>
         <button type="button" class="p-meta" data-act="expand">
-          <div class="kicker">
-            <span class="led"></span>
+          <span class="kicker">
+            <span class="led" aria-hidden="true"></span>
             <span id="p-kick" data-i18n="onair">آن‌ایر</span>
             <span id="p-freq" class="freq" dir="ltr"></span>
-          </div>
-          <div class="name-wrap"><div id="p-name">—</div></div>
-          <div id="p-sub" class="sub"></div>
+          </span>
+          <span class="name-wrap"><span id="p-name" class="p-name">—</span></span>
+          <span id="p-sub" class="sub"></span>
         </button>
         <div class="p-ctrls">
           <button type="button" class="ghost hide-sm" data-act="prev" data-i18n-aria="prev">
@@ -163,6 +277,7 @@
           <button type="button" class="play" data-act="toggle" id="p-toggle" data-i18n-aria="play">
             <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.4 12 8 5.2z"/></svg>
             <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7V5zm6.6 0H17v14h-3.4V5z"/></svg>
+            <span class="spinner" aria-hidden="true"></span>
           </button>
           <button type="button" class="ghost" data-act="next" data-i18n-aria="next">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 6H18v12h-2.2V6zM6 18.2 14.8 12 6 5.8v12.4z"/></svg>
@@ -170,7 +285,7 @@
           <button type="button" class="ghost hide-sm" data-act="rand" data-i18n-aria="random">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.2 4h2.6v2.6h-2.1l-3.2 3.2-1.5-1.5 3.1-3.1h.01zM4.2 5.5h5.4l1.7 1.7-1.5 1.5-1.3-1.3H4.2V5.5zm13 8.3 3 3V19h-2.6v-.9l-3.1-3.1 1.5-1.5 1.2 1.3zM4.2 17.2h4.3l8.2-8.2 1.5 1.5-8.3 8.3H4.2v-1.6z"/></svg>
           </button>
-          <button type="button" class="ghost hide-sm fav-btn" data-act="fav" id="p-fav" data-i18n-aria="fav">
+          <button type="button" class="ghost hide-sm fav-btn" data-act="fav" id="p-fav" data-i18n-aria="fav" aria-pressed="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.2 10.4 18.8C5.4 14.3 2 11.3 2 7.6 2 4.6 4.4 2.2 7.4 2.2c1.7 0 3.3.8 4.6 2.1 1.3-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.4 6.7-8.4 11.2L12 20.2z"/></svg>
           </button>
           <button type="button" class="ghost expand-btn" data-act="expand" data-i18n-aria="expand">
@@ -179,14 +294,19 @@
         </div>
       </div>
       <div class="dock-tools">
-        <input id="d-vol" class="vol" data-vol type="range" min="0" max="1" step="0.01" value="0.85" />
+        <input id="d-vol" class="vol" data-vol type="range" min="0" max="1" step="0.01" value="0.85" data-i18n-aria="volume" aria-label="Volume" />
         <button type="button" class="ghost wide keys-btn" data-act="sleeptog" id="dock-sleep" data-i18n="sleep">خواب</button>
       </div>
       <div class="rds" id="p-rds"></div>
       <div class="presets" id="presets"></div>
+      <div class="credit">
+        <span data-i18n="credit">ساخته شده توسط</span> <b>مبین.آ</b>
+        · <a href="https://www.radio-browser.info/" target="_blank" rel="noopener noreferrer" data-i18n="source">Radio Browser</a>
+      </div>
+      <span id="p-state" class="sr-only" aria-live="polite"></span>
     </footer>
 
-    <div id="stage" class="stage" aria-hidden="true">
+    <div id="stage" class="stage" role="dialog" aria-modal="true" aria-labelledby="s-name" aria-hidden="true">
       <div class="cabinet">
         <div class="stage-handle" aria-hidden="true"></div>
         <div class="stage-top">
@@ -199,7 +319,7 @@
             <div class="tag" id="s-date"></div>
             <div class="tag wx" id="s-wx"></div>
           </div>
-          <button type="button" class="ghost fav-btn" data-act="fav" id="s-fav" data-i18n-aria="fav">
+          <button type="button" class="ghost fav-btn" data-act="fav" id="s-fav" data-i18n-aria="fav" aria-pressed="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.2 10.4 18.8C5.4 14.3 2 11.3 2 7.6 2 4.6 4.4 2.2 7.4 2.2c1.7 0 3.3.8 4.6 2.1 1.3-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.4 6.7-8.4 11.2L12 20.2z"/></svg>
           </button>
         </div>
@@ -212,9 +332,9 @@
             <div class="needle" id="s-needle"></div>
           </div>
           <div class="stage-hero">
-            <canvas id="s-ring"></canvas>
+            <canvas id="s-ring" aria-hidden="true"></canvas>
             <div class="vinyl big" id="s-vinyl">
-              <img id="s-ico" alt="" referrerpolicy="no-referrer" hidden />
+              <img id="s-ico" alt="" referrerpolicy="no-referrer" decoding="async" hidden />
               <span id="s-ph" class="art-ph">F</span>
             </div>
           </div>
@@ -234,7 +354,7 @@
 
         <div class="stage-meta">
           <div class="kicker">
-            <span class="led"></span>
+            <span class="led" aria-hidden="true"></span>
             <span id="s-kick" data-i18n="onair">آن‌ایر</span>
             <span id="s-freq" class="freq" dir="ltr"></span>
           </div>
@@ -256,6 +376,7 @@
           <button type="button" class="play xl" data-act="toggle" id="s-toggle" data-i18n-aria="play">
             <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.4 12 8 5.2z"/></svg>
             <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7V5zm6.6 0H17v14h-3.4V5z"/></svg>
+            <span class="spinner" aria-hidden="true"></span>
           </button>
           <button type="button" class="ghost lg" data-act="next" data-i18n-aria="next">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 6H18v12h-2.2V6zM6 18.2 14.8 12 6 5.8v12.4z"/></svg>
@@ -267,13 +388,13 @@
         </div>
 
         <div class="stage-vol">
-          <input id="vol" class="vol" data-vol type="range" min="0" max="1" step="0.01" value="0.85" />
+          <input id="vol" class="vol" data-vol type="range" min="0" max="1" step="0.01" value="0.85" aria-label="Volume" />
           <span id="vol-n" dir="ltr">85</span>
         </div>
 
         <div class="stage-sleep">
           <span class="sleep-lab" data-i18n="sleep">خواب</span>
-          <div id="sleep-chips" class="chips"></div>
+          <div id="sleep-chips" class="chips" role="group" aria-label="Sleep timer"></div>
           <span id="sleep-left" class="sleep-left" dir="ltr"></span>
         </div>
         <div class="alarm-row">
@@ -281,8 +402,9 @@
             <input id="alarm-on" type="checkbox" />
             <span data-i18n="alarm">زنگ</span>
           </label>
-          <input id="alarm-time" type="time" value="07:00" />
+          <input id="alarm-time" type="time" value="07:00" data-i18n-aria="alarm" aria-label="Alarm" />
           <button type="button" class="ghost wide" data-act="share" data-i18n="share">اشتراک</button>
+          <button type="button" class="ghost wide" data-act="copy" data-i18n="copyLink">کپی لینک</button>
           <button type="button" class="ghost wide" data-act="tg" data-i18n="telegram">تلگرام</button>
           <button type="button" class="ghost wide" data-act="vote" data-i18n="vote">رأی بده</button>
           <button type="button" class="ghost wide" data-act="snooze" data-i18n="snooze">اسنوز</button>
@@ -293,21 +415,17 @@
           <input id="import-file" type="file" accept="application/json" hidden />
         </div>
         <div class="io-row">
-          <input id="folder-name" type="text" maxlength="24" data-i18n-placeholder="folderPh" placeholder="نام پوشه" />
+          <input id="folder-name" type="text" maxlength="24" data-i18n-placeholder="folderPh" data-i18n-aria="folderPh" placeholder="نام پوشه" />
           <button type="button" class="ghost wide" data-act="newfolder" data-i18n="newFolder">پوشه جدید</button>
           <button type="button" class="ghost wide" data-act="addfolder" data-i18n="addFolder">به پوشه</button>
         </div>
       </div>
     </div>
 
-    <div class="credit">
-      <span data-i18n="credit">ساخته شده توسط</span> <b>مبین.آ</b>
-      · <span data-i18n="source">Radio Browser</span>
-    </div>
-
-    <div id="sheet" class="sheet" hidden>
+    <div id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-name" hidden>
       <button id="sheet-x" type="button" data-i18n="close">بستن</button>
-      <img id="sh-ico" alt="" referrerpolicy="no-referrer" />
+      <img id="sh-ico" alt="" referrerpolicy="no-referrer" decoding="async" hidden />
+      <span id="sh-ph" class="ph sheet-ph" hidden aria-hidden="true"><b>F</b></span>
       <h2 id="sh-name">—</h2>
       <p id="sh-meta" class="sub"></p>
       <p id="sh-tags" class="sub"></p>
@@ -315,34 +433,38 @@
         <button id="sh-play" class="play" type="button" data-i18n="play">پخش</button>
         <button id="sh-similar" class="ghost wide" type="button" data-i18n="similar">مشابه</button>
         <button id="sh-share" class="ghost wide" type="button" data-i18n="share">اشتراک</button>
+        <button id="sh-copy" class="ghost wide" type="button" data-i18n="copyLink">کپی لینک</button>
         <button id="sh-vote" class="ghost wide" type="button" data-i18n="vote">رأی بده</button>
         <button id="sh-hide" class="ghost wide" type="button" data-i18n="hide">مخفی</button>
-        <a id="sh-home" class="ghost wide" target="_blank" rel="noopener" hidden data-i18n="homepage">سایت ایستگاه</a>
+        <a id="sh-home" class="ghost wide" target="_blank" rel="noopener noreferrer" hidden data-i18n="homepage">سایت ایستگاه</a>
       </div>
     </div>
 
-    <div id="help" class="about" hidden>
+    <div id="help" class="about" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
       <div class="about-card">
         <div class="word" dir="ltr">FREQ</div>
-        <h3 data-i18n="help">راهنما</h3>
+        <h3 id="help-title" data-i18n="help">راهنما</h3>
         <p class="about-body" data-i18n="helpBody"></p>
         <p class="about-body" data-i18n="holdSave">نگه دار تا ذخیره شود</p>
         <button id="help-close" type="button" data-i18n="close">بستن</button>
       </div>
     </div>
 
-    <div id="toast" class="toast" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+      <span id="toast-msg"></span>
+      <button id="toast-act" type="button" hidden></button>
+    </div>
 
-    <div id="map" class="map" hidden>
+    <div id="map" class="map" role="dialog" aria-modal="true" aria-labelledby="map-title" hidden>
       <div class="map-top">
-        <div class="word" dir="ltr">FREQ</div>
+        <div class="word" id="map-title" dir="ltr">FREQ</div>
         <button type="button" class="ghost wide" data-act="map" data-i18n="close">بستن</button>
       </div>
-      <canvas id="map-c"></canvas>
+      <canvas id="map-c" role="img" data-i18n-aria="mapAria" aria-label="World map of radio stations"></canvas>
       <div class="map-hint" id="map-hint" data-i18n="mapHint">روی نقطه بزن تا پخش شود</div>
     </div>
 
-    <div id="car" class="car" hidden>
+    <div id="car" class="car" role="dialog" aria-modal="true" aria-labelledby="car-name" hidden>
       <div class="car-top">
         <div class="word" dir="ltr">FREQ</div>
         <button type="button" class="ghost wide" data-act="car" data-i18n="close">بستن</button>
@@ -356,6 +478,7 @@
         <button type="button" class="play huge" data-act="toggle">
           <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.4 12 8 5.2z"/></svg>
           <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7V5zm6.6 0H17v14h-3.4V5z"/></svg>
+          <span class="spinner" aria-hidden="true"></span>
         </button>
         <button type="button" class="ghost huge" data-act="next" data-i18n-aria="next">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 6H18v12h-2.2V6zM6 18.2 14.8 12 6 5.8v12.4z"/></svg>
@@ -364,27 +487,28 @@
       <button type="button" class="ghost wide" data-act="scan" data-i18n="scan">اسکن</button>
     </div>
 
-    <div id="stand" class="stand" hidden>
+    <div id="stand" class="stand" role="dialog" aria-modal="true" data-i18n-aria="stand" aria-label="Clock" hidden>
       <div class="stand-clock" id="stand-clock">--:--</div>
       <div class="stand-date" id="stand-date"></div>
       <div class="stand-wx" id="stand-wx"></div>
       <div class="stand-st" id="stand-st">FREQ</div>
       <div class="stand-acts">
-        <button type="button" class="play xl" data-act="toggle">
+        <button type="button" class="play xl" data-act="toggle" aria-label="Play">
           <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.4 12 8 5.2z"/></svg>
           <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7V5zm6.6 0H17v14h-3.4V5z"/></svg>
+          <span class="spinner" aria-hidden="true"></span>
         </button>
         <button type="button" class="ghost wide" data-act="snooze" data-i18n="snooze">اسنوز ۹</button>
         <button type="button" class="ghost wide" data-act="stand" data-i18n="standOff">برگشت</button>
       </div>
     </div>
 
-    <div id="wrap" class="themes" hidden>
+    <div id="wrap" class="themes" role="dialog" aria-modal="true" aria-labelledby="wrap-title" hidden>
       <div class="themes-card wrap-card">
         <div class="themes-head">
           <div>
             <div class="word" dir="ltr">FREQ</div>
-            <h3 data-i18n="wrap">آمار گوش</h3>
+            <h3 id="wrap-title" data-i18n="wrap">آمار گوش</h3>
           </div>
           <button type="button" class="ghost wide" data-act="wrap" data-i18n="close">بستن</button>
         </div>
@@ -393,12 +517,12 @@
       </div>
     </div>
 
-    <div id="themes" class="themes" hidden>
+    <div id="themes" class="themes" role="dialog" aria-modal="true" aria-labelledby="themes-title" hidden>
       <div class="themes-card">
         <div class="themes-head">
           <div>
             <div class="word" dir="ltr">FREQ</div>
-            <h3 data-i18n="themes">تم‌ها</h3>
+            <h3 id="themes-title" data-i18n="themes">تم‌ها</h3>
           </div>
           <button type="button" class="ghost wide" data-act="theme" data-i18n="close">بستن</button>
         </div>
@@ -407,29 +531,38 @@
       </div>
     </div>
 
-    <div id="about" class="about" hidden>
+    <div id="about" class="about" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
       <div class="about-card">
-        <img src="./assets/icon-192.png?v=21" width="88" height="88" alt="FREQ" />
+        <img src="./assets/icon-192.png?v=32" width="88" height="88" alt="FREQ" />
         <div class="word" dir="ltr">FREQ</div>
-        <h3 data-i18n="aboutTitle"></h3>
+        <h3 id="about-title" data-i18n="aboutTitle"></h3>
         <p class="about-body" data-i18n="aboutBody"></p>
         <p class="about-maker" data-i18n="aboutMaker">ساخته شده توسط مبین.آ</p>
-        <a class="tg" href="https://t.me/MobinA_programs" target="_blank" rel="noopener">
+        <a class="tg" href="https://t.me/MobinA_programs" target="_blank" rel="noopener noreferrer">
           <span data-i18n="channel">کانال برنامه‌های من</span>
           <span dir="ltr">t.me/MobinA_programs</span>
         </a>
+        <p class="about-ver" id="about-ver" dir="ltr">v2.0.1</p>
         <button id="about-close" type="button" data-i18n="close">بستن</button>
       </div>
     </div>
 
-    <div id="loader">
-      <img src="./assets/icon-192.png?v=21" width="92" height="92" alt="" />
+    <div id="loader" role="status" aria-live="polite">
+      <img src="./assets/icon-192.png?v=32" width="92" height="92" alt="" />
       <div class="word" dir="ltr">FREQ</div>
       <div id="load-sub" data-i18n="loading">در حال اتصال…</div>
+      <button id="load-retry" class="ghost wide" type="button" data-act="retry" data-i18n="retry" hidden>تلاش دوباره</button>
     </div>
 
-    <audio id="audio"></audio>
-    <script src="./i18n.js?v=30"></script>
-    <script src="./app.js?v=30"></script>
+    <noscript>
+      <div class="noscript">
+        FREQ needs JavaScript to stream radio. لطفاً جاوااسکریپت را روشن کنید.
+      </div>
+    </noscript>
+
+    <audio id="audio" preload="none"></audio>
+    <script defer src="./core.js?v=32"></script>
+    <script defer src="./i18n.js?v=32"></script>
+    <script defer src="./app.js?v=32"></script>
   </body>
 </html>

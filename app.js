@@ -2016,14 +2016,15 @@
     const master = $("eq-master");
     if (master) master.value = String(Core.trimToSlider(state.master));
     setText("eq-master-n", Math.round(state.master * 100) + "%");
+    /* The per-station trim stays visible while idle (with an explanation) rather
+       than vanishing, so the dialog does not reflow under the reader. */
     const trim = $("eq-trim");
     if (trim) {
       const has = !!state.current;
       trim.disabled = !has;
+      trim.setAttribute("aria-disabled", has ? "false" : "true");
       trim.value = String(Core.trimToSlider(trimFor(state.current)));
       setText("eq-trim-n", has ? Math.round(trimFor(state.current) * 100) + "%" : "—");
-      const row = $("eq-trim-row");
-      if (row) row.hidden = false;
       setText("eq-trim-name", has ? state.current.name || "" : t("noStation"));
     }
     const status = $("eq-status");

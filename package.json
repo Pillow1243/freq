@@ -1,14 +1,14 @@
 {
   "name": "freq",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
-  "description": "FREQ — live radio of the world. A fast, installable, offline-first radio PWA by Mobin.A.",
+  "description": "FREQ — live radio of the world with 50 themes, 11 player styles and offline-first playback.",
   "homepage": "https://pillow1243.github.io/freq/",
   "repository": {
     "type": "git",
     "url": "https://github.com/Pillow1243/freq.git"
   },
-  "author": "Mobin.A (https://t.me/MobinA_programs)",
+  "author": "Mobin.A",
   "license": "UNLICENSED",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",

@@ -44,7 +44,7 @@
     "https://all.api.radio-browser.info",
   ];
   const PAGE = 120;
-  const APP_VERSION = "2.0.1";
+  const APP_VERSION = "2.1.0";
   const API_TTL = 30 * 1000;
   const DIRSTATS_TTL = 6 * 60 * 60 * 1000;
   const COUNTRIES = [
@@ -146,6 +146,80 @@
     { id: "midnight", fa: "نیمه‌شب", en: "Midnight", light: 0, bg: "#07081a", acc: "#818cf8", ice: "#67e8f9", text: "#eef2ff", muted: "#a5b4fc", ink: "#1e1b4b", panel: "rgba(16,18,48,0.74)", line: "rgba(129,140,248,0.18)", player: "rgba(8,10,28,0.9)", cabinet: "rgba(12,14,36,0.94)", wash: "radial-gradient(ellipse at 50% -10%, rgba(99,102,241,0.22), transparent 42%), #07081a" },
   ];
 
+  const EXTRA_THEME_PALETTES = [
+    { id: "coral", fa: "مرجان", en: "Coral", bg: "#1a0b12", acc: "#fb7185", ice: "#ffd0a8", text: "#fff1f2", muted: "#fda4af", ink: "#3f0a19" },
+    { id: "peach", fa: "هلو", en: "Peach", bg: "#1b100b", acc: "#fb9872", ice: "#ffd8a8", text: "#fff7ed", muted: "#fdba92", ink: "#3d1b10" },
+    { id: "cobalt", fa: "کبالت", en: "Cobalt", bg: "#08122b", acc: "#5b8cff", ice: "#a9d4ff", text: "#eef4ff", muted: "#a8bfff", ink: "#07152e" },
+    { id: "sapphire", fa: "یاقوت کبود", en: "Sapphire", bg: "#061833", acc: "#38bdf8", ice: "#a5f3fc", text: "#e0f2fe", muted: "#7dd3fc", ink: "#08233e" },
+    { id: "amethyst", fa: "آمتیست", en: "Amethyst", bg: "#160d25", acc: "#a78bfa", ice: "#f0abfc", text: "#f5f3ff", muted: "#c4b5fd", ink: "#24103d" },
+    { id: "lavender", fa: "اسطوخودوس", en: "Lavender", light: true, bg: "#f4f0ff", acc: "#7c3aed", ice: "#db2777", text: "#21143c", muted: "#67518d", ink: "#ffffff" },
+    { id: "plum", fa: "آلو", en: "Plum", bg: "#180a1e", acc: "#d946ef", ice: "#f0abfc", text: "#fdf4ff", muted: "#e879f9", ink: "#350c3c" },
+    { id: "ruby", fa: "یاقوت", en: "Ruby", bg: "#1c0811", acc: "#f43f5e", ice: "#fda4af", text: "#fff1f2", muted: "#fda4af", ink: "#ffffff" },
+    { id: "copper", fa: "مس", en: "Copper", bg: "#1a0e08", acc: "#e8875b", ice: "#f6bd80", text: "#fff7ed", muted: "#e7a77b", ink: "#2c1008" },
+    { id: "honey", fa: "عسل", en: "Honey", bg: "#171006", acc: "#f6b73c", ice: "#ffe08a", text: "#fffbeb", muted: "#fcd34d", ink: "#281a05" },
+    { id: "citrus", fa: "مرکبات", en: "Citrus", light: true, bg: "#f3f8e8", acc: "#4d7c0f", ice: "#0f766e", text: "#1a2810", muted: "#526b3b", ink: "#ffffff" },
+    { id: "lagoon", fa: "تالاب", en: "Lagoon", bg: "#07191a", acc: "#2dd4bf", ice: "#67e8f9", text: "#ecfeff", muted: "#5eead4", ink: "#042f2e" },
+    { id: "peacock", fa: "طاووس", en: "Peacock", bg: "#071724", acc: "#06b6d4", ice: "#a3e635", text: "#ecfeff", muted: "#67e8f9", ink: "#052b35" },
+    { id: "glacier", fa: "یخچال", en: "Glacier", light: true, bg: "#eff8fc", acc: "#0369a1", ice: "#0891b2", text: "#102b3a", muted: "#456579", ink: "#ffffff" },
+    { id: "cloud", fa: "ابر", en: "Cloud", light: true, bg: "#f4f6f8", acc: "#475569", ice: "#0f766e", text: "#17202b", muted: "#5a6571", ink: "#ffffff" },
+    { id: "graphite", fa: "گرافیت", en: "Graphite", bg: "#111315", acc: "#a3a3a3", ice: "#67e8f9", text: "#f4f4f5", muted: "#a1a1aa", ink: "#111315" },
+    { id: "mono", fa: "تک‌رنگ", en: "Monochrome", bg: "#070707", acc: "#f5f5f5", ice: "#a3a3a3", text: "#ffffff", muted: "#a3a3a3", ink: "#111111" },
+    { id: "rose-quartz", fa: "رز بلوری", en: "Rose Quartz", light: true, bg: "#fff1f5", acc: "#be185d", ice: "#7c3aed", text: "#321628", muted: "#80546a", ink: "#ffffff" },
+    { id: "mint-cream", fa: "کرم نعنا", en: "Mint Cream", light: true, bg: "#edfff7", acc: "#047857", ice: "#0e7490", text: "#102c24", muted: "#4b6e60", ink: "#ffffff" },
+    { id: "skyline", fa: "آسمان", en: "Skyline", light: true, bg: "#eff8ff", acc: "#1d4ed8", ice: "#0891b2", text: "#14243b", muted: "#50647f", ink: "#ffffff" },
+    { id: "lemonade", fa: "لیموناد", en: "Lemonade", light: true, bg: "#fffbea", acc: "#a16207", ice: "#ea580c", text: "#30240d", muted: "#73613a", ink: "#ffffff" },
+    { id: "orchid", fa: "ارکیده", en: "Orchid", bg: "#1d0a1b", acc: "#e879f9", ice: "#c4b5fd", text: "#fdf4ff", muted: "#f0abfc", ink: "#381141" },
+    { id: "berry", fa: "توت", en: "Berry", bg: "#160a1a", acc: "#c026d3", ice: "#fb7185", text: "#fdf4ff", muted: "#e879f9", ink: "#ffffff" },
+    { id: "pine", fa: "کاج", en: "Pine", bg: "#08150f", acc: "#16a34a", ice: "#a3e635", text: "#ecfdf5", muted: "#86efac", ink: "#06240f" },
+    { id: "jade", fa: "یشم", en: "Jade", bg: "#081715", acc: "#10b981", ice: "#6ee7b7", text: "#ecfdf5", muted: "#6ee7b7", ink: "#042f2e" },
+    { id: "emberglass", fa: "شیشهٔ اخگر", en: "Ember Glass", bg: "#171015", acc: "#ff6b4a", ice: "#9bdcfb", text: "#fff5f1", muted: "#d6aaa1", ink: "#ffffff" },
+    { id: "deepsea", fa: "دریای عمیق", en: "Deep Sea", bg: "#06121b", acc: "#0ea5e9", ice: "#38bdf8", text: "#e0f2fe", muted: "#7dd3fc", ink: "#06233a" },
+    { id: "twilight", fa: "گرگ‌ومیش", en: "Twilight", bg: "#100b1d", acc: "#6366f1", ice: "#f472b6", text: "#eef2ff", muted: "#a5b4fc", ink: "#ffffff" },
+    { id: "cosmic", fa: "کیهانی", en: "Cosmic", bg: "#090619", acc: "#8b5cf6", ice: "#22d3ee", text: "#f5f3ff", muted: "#c4b5fd", ink: "#ffffff" },
+    { id: "mocha", fa: "موکا", en: "Mocha", bg: "#18110e", acc: "#d6a77a", ice: "#f3d7b3", text: "#fff7ed", muted: "#c5a995", ink: "#2c1d16" },
+  ];
+  EXTRA_THEME_PALETTES.forEach(function (palette) {
+    const bgRgb = hexRgb(palette.bg);
+    THEMES.push({
+      id: palette.id,
+      fa: palette.fa,
+      en: palette.en,
+      light: palette.light ? 1 : 0,
+      bg: palette.bg,
+      acc: palette.acc,
+      ice: palette.ice,
+      text: palette.text,
+      muted: palette.muted,
+      ink: palette.ink,
+      panel: palette.light ? "rgba(255,255,255,0.78)" : "rgba(" + bgRgb + ",0.78)",
+      line: palette.light ? "rgba(20,20,30,0.1)" : "rgba(" + hexRgb(palette.ice) + ",0.17)",
+      player: palette.light ? "rgba(255,255,255,0.9)" : "rgba(" + bgRgb + ",0.9)",
+      cabinet: palette.light ? "rgba(255,255,255,0.96)" : "rgba(" + bgRgb + ",0.95)",
+      wash:
+        "radial-gradient(ellipse at 16% 0%, rgba(" + hexRgb(palette.acc) + ",0.2), transparent 42%), " +
+        "radial-gradient(ellipse at 88% 88%, rgba(" + hexRgb(palette.ice) + ",0.11), transparent 42%), " +
+        palette.bg,
+    });
+  });
+
+  const PLAYER_STYLES = [
+    { id: "studio", fa: "استودیو", en: "Studio", faHint: "کنسول رادیویی متعادل", enHint: "Balanced radio console" },
+    { id: "vinyl", fa: "وینیل", en: "Vinyl", faHint: "صفحهٔ گردان با حس نوستالژی", enHint: "A spinning record-inspired look" },
+    { id: "spectrum", fa: "طیف‌نما", en: "Spectrum", faHint: "اکولایزر و موج در مرکز توجه", enHint: "Waveform and equalizer up front" },
+    { id: "retro", fa: "رادیوی قدیمی", en: "Retro FM", faHint: "درجهٔ موج و حال‌وهوای آنالوگ", enHint: "Warm analog tuner details" },
+    { id: "minimal", fa: "مینیمال", en: "Minimal", faHint: "ساده، خلوت و بی‌حواس‌پرتی", enHint: "Clean controls, less distraction" },
+    { id: "glass", fa: "شیشه‌ای", en: "Glass", faHint: "شیشهٔ مات و نور نرم", enHint: "Soft, translucent glass" },
+    { id: "neon", fa: "نئون", en: "Neon", faHint: "لبه‌های درخشان و پرانرژی", enHint: "Bright edges and a vivid glow" },
+    { id: "album", fa: "کاور آلبوم", en: "Album Art", faHint: "تصویر ایستگاه بزرگ‌تر و برجسته‌تر", enHint: "Artwork-first listening" },
+    { id: "wave", fa: "موج", en: "Wave", faHint: "لایه‌های زنده با الهام از موج", enHint: "Animated wave-inspired layers" },
+    { id: "compact", fa: "فشرده", en: "Compact", faHint: "نوار کم‌جا برای صفحهٔ کوچک", enHint: "A slim dock for small screens" },
+    { id: "terminal", fa: "ترمینال", en: "Terminal", faHint: "نمایشگر دیجیتال تک‌رنگ", enHint: "A monochrome digital monitor" },
+  ];
+
+  function playerStyleById(id) {
+    return PLAYER_STYLES.find(function (style) { return style.id === id; }) || PLAYER_STYLES[0];
+  }
+
   function lsGet(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
@@ -246,6 +320,7 @@
     mapPts: [],
     filtersOpen: false,
     theme: lsGet("freq-theme", "") || (prefersLight() ? "light" : "dark"),
+    playerStyle: lsGet("freq-player-style", "studio"),
     forYou: [],
     forYouTag: "",
     nearList: [],
@@ -342,6 +417,7 @@
     syncAlarmUi();
     tickClock();
     applyTheme();
+    applyPlayerStyle();
     syncFiltersBtn();
     syncClearBtn();
     syncDockSleep();
@@ -1146,6 +1222,8 @@
     const player = $("player");
     const stage = $("stage");
     if (!player) return;
+    player.setAttribute("data-player-style", state.playerStyle);
+    if (stage) stage.setAttribute("data-player-style", state.playerStyle);
     const fav = !!(s && isFav(s.stationuuid));
     const failed = !!state.failed;
     const connecting = !state.playing && !!state.status && !failed;
@@ -1521,6 +1599,7 @@
     car: "#car",
     themes: "#themes .themes-card",
     wrap: "#wrap .themes-card",
+    playerstyles: "#playerstyles .themes-card",
   };
 
   function layerContainer(id) {
@@ -1612,6 +1691,7 @@
     else if (id === "car") closeCar(true);
     else if (id === "themes") closeThemes(true);
     else if (id === "wrap") closeWrap(true);
+    else if (id === "playerstyles") closePlayerStyles(true);
     else dropLayer(id, true);
     return true;
   }
@@ -1943,6 +2023,7 @@
       stats: state.stats,
       settings: {
         theme: state.theme,
+        playerStyle: state.playerStyle,
         lang: state.lang,
         sort: state.sort,
         wave: state.wave,
@@ -2005,6 +2086,10 @@
         }
         if (data.settings) {
           if (data.settings.theme) constThemeExists(data.settings.theme);
+          if (data.settings.playerStyle) {
+            state.playerStyle = playerStyleById(data.settings.playerStyle).id;
+            lsSet("freq-player-style", state.playerStyle);
+          }
           if (data.settings.sort) state.sort = String(data.settings.sort);
           if (data.settings.wave) state.wave = String(data.settings.wave);
           if (typeof data.settings.hd === "boolean") state.hd = data.settings.hd;
@@ -2020,6 +2105,7 @@
         renderSorts();
         syncHdBtn();
         applyTheme();
+        applyPlayerStyle();
         if (state.mode === "fav") state.stations = state.favs.slice();
         renderList();
         toast(t("saved"));
@@ -2603,7 +2689,11 @@
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", th.bg);
     const btn = $("theme-btn");
-    if (btn) btn.textContent = t("theme") + " · " + (state.lang === "fa" ? th.fa : th.en);
+    const themeName = state.lang === "fa" ? th.fa : th.en;
+    if (btn) {
+      btn.textContent = t("theme") + " · " + themeName;
+      btn.setAttribute("aria-label", t("theme") + ": " + themeName);
+    }
     renderThemeGrid();
     if (state.mapOpen) drawMap();
   }
@@ -2620,6 +2710,13 @@
         "<b>" + esc(name) + "</b><span>" + esc(sub) + "</span></button>"
       );
     }).join("");
+    const countText = t("themeCount");
+    setText(
+      "theme-count",
+      typeof countText === "function"
+        ? countText(formatNumber(THEMES.length, state.lang === "fa" ? "fa-IR" : "en-US"))
+        : String(countText)
+    );
   }
   function openThemes() {
     const el = $("themes");
@@ -2665,6 +2762,92 @@
       commit();
     }
     toast(state.lang === "fa" ? th.fa : th.en);
+  }
+  function applyPlayerStyle() {
+    const style = playerStyleById(state.playerStyle);
+    state.playerStyle = style.id;
+    document.documentElement.setAttribute("data-player-style", style.id);
+    const player = $("player");
+    const stage = $("stage");
+    if (player) player.setAttribute("data-player-style", style.id);
+    if (stage) stage.setAttribute("data-player-style", style.id);
+    lsSet("freq-player-style", style.id);
+    const name = state.lang === "fa" ? style.fa : style.en;
+    const button = $("player-style-btn");
+    if (button) button.setAttribute("aria-label", t("playerStyle") + ": " + name);
+    setText("player-style-current", name);
+    renderPlayerStyleGrid();
+    syncChrome();
+  }
+  function renderPlayerStyleGrid() {
+    const box = $("player-style-grid");
+    if (box) {
+      box.innerHTML = PLAYER_STYLES.map(function (style) {
+        const on = style.id === state.playerStyle;
+        const name = state.lang === "fa" ? style.fa : style.en;
+        const hint = state.lang === "fa" ? style.faHint : style.enHint;
+        return (
+          '<button type="button" class="player-style-tile ' + (on ? "on" : "") + '" data-style-id="' +
+          esc(style.id) + '" aria-pressed="' + (on ? "true" : "false") + '">' +
+          '<span class="player-preview" data-player-preview="' + esc(style.id) + '" aria-hidden="true">' +
+          '<i class="pp-art"></i><span class="pp-meta"><i></i><i></i></span>' +
+          '<span class="pp-controls"><i></i><b></b><i></i></span></span>' +
+          '<b class="player-style-name">' + esc(name) + '</b><span class="player-style-hint">' + esc(hint) +
+          "</span></button>"
+        );
+      }).join("");
+    }
+    const countText = t("playerStyleCount");
+    setText(
+      "player-style-count",
+      typeof countText === "function"
+        ? countText(formatNumber(PLAYER_STYLES.length, state.lang === "fa" ? "fa-IR" : "en-US"))
+        : String(countText)
+    );
+  }
+  function openPlayerStyles() {
+    const el = $("playerstyles");
+    if (el && el.hidden) pushLayer("playerstyles");
+    if (el) el.hidden = false;
+    const button = $("player-style-btn");
+    if (button) {
+      button.classList.add("on");
+      button.setAttribute("aria-expanded", "true");
+    }
+    renderPlayerStyleGrid();
+  }
+  function closePlayerStyles(fromPop) {
+    const el = $("playerstyles");
+    const was = el && !el.hidden;
+    if (el) el.hidden = true;
+    const button = $("player-style-btn");
+    if (button) {
+      button.classList.remove("on");
+      button.setAttribute("aria-expanded", "false");
+    }
+    if (was) dropLayer("playerstyles", fromPop);
+  }
+  function togglePlayerStyles() {
+    const el = $("playerstyles");
+    if (el && !el.hidden) closePlayerStyles();
+    else openPlayerStyles();
+  }
+  function setPlayerStyle(id) {
+    const style = playerStyleById(id);
+    const commit = function () {
+      state.playerStyle = style.id;
+      applyPlayerStyle();
+    };
+    try {
+      if (document.startViewTransition && !prefersReducedMotion()) {
+        document.startViewTransition(commit);
+      } else {
+        commit();
+      }
+    } catch (_) {
+      commit();
+    }
+    toast(state.lang === "fa" ? style.fa : style.en);
   }
   function topEntries(obj, n) {
     return Object.keys(obj || {})
@@ -3726,6 +3909,7 @@
       ["about", closeAbout],
       ["themes", closeThemes],
       ["wrap", closeWrap],
+      ["playerstyles", closePlayerStyles],
       ["stage", closeStage],
       ["map", closeMap],
       ["car", closeCar],
@@ -3811,6 +3995,13 @@
       themeGrid.addEventListener("click", function (e) {
         const btn = e.target.closest("[data-tid]");
         if (btn) setTheme(btn.dataset.tid);
+      });
+    }
+    const playerStyleGrid = $("player-style-grid");
+    if (playerStyleGrid) {
+      playerStyleGrid.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-style-id]");
+        if (btn) setPlayerStyle(btn.dataset.styleId);
       });
     }
 
@@ -3994,6 +4185,9 @@
       else if (act === "theme") {
         closeSettings();
         toggleThemes();
+      } else if (act === "playerstyles") {
+        closeSettings();
+        togglePlayerStyles();
       } else if (act === "wrap") {
         closeSettings();
         toggleWrap();

@@ -3,6 +3,25 @@
 All notable changes to FREQ are documented here. The site has no build step, so
 versions are tagged in `package.json` and `APP_VERSION` in `app.js`.
 
+## 2.1.0 — 2026-10-19
+
+A major visual refresh focused on personalisation and a cleaner product identity.
+
+### Added
+- 30 additional hand-tuned palettes, bringing the theme library to 50 choices.
+- 11 selectable player appearances: Studio, Vinyl, Spectrum, Retro FM, Minimal,
+  Glass, Neon, Album Art, Wave, Compact and Terminal.
+- Live player-style previews, persistent selection, accessible dialogs and backup
+  import/export support for the selected player appearance.
+
+### Changed
+- Removed the personal Telegram channel promotion from the app, metadata and README.
+- Replaced the settings gear with a centered, symmetric outline icon.
+- Updated shell cache-busting to `?v=33` and the service-worker cache to `freq-v2.1.0`.
+
+### Fixed
+- Kept the selected player appearance and theme names in sync with Persian/English.
+
 ## 2.0.1 — 2026-10-19
 
 A final polish pass on top of 2.0.0.

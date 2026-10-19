@@ -1,7 +1,7 @@
 {
   "name": "FREQ — رادیوی زندهٔ جهان",
   "short_name": "FREQ",
-  "description": "Live radio of the world — thousands of stations, map, car mode, sleep timer, favourites, folders, 20 themes and offline support. رادیوی زندهٔ جهان ساخته شده توسط مبین.آ",
+  "description": "Live radio of the world — thousands of stations, map, car mode, sleep timer, favourites, folders, 50 themes, 11 player styles and offline support. رادیوی زندهٔ جهان ساخته شده توسط مبین.آ",
   "id": "./",
   "start_url": "./",
   "scope": "./",

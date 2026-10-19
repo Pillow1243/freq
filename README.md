@@ -55,7 +55,7 @@ Thousands of stations, a world map, car mode, sleep timer, folders, 50 themes,
 
 `Space` play/pause · `N`/`P` next/prev · `R` random · `F` favourite · `S` share ·
 `/` search · `1`–`6` presets · `Shift+1`–`6` save preset · `M` map · `V` car ·
-`C` clock · `K` scan · `T` themes · `Y` stats · `H` near me · `?` help · `Esc` close layer.
+`C` clock · `K` scan · `T` themes · `Y` stats · `H` near me · `E` equalizer · `?` help · `Esc` close layer.
 
 ## Project layout
 

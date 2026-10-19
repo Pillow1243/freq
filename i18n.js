@@ -81,7 +81,7 @@ window.I18N = {
     vote: "رأی بده",
     help: "راهنما",
     helpBody:
-      "فاصله: پخش · N بعدی · P قبلی · R تصادفی · F پسند · / جستجو · ۱–۶ پریست · M نقشه · V ماشین · C ساعت · K اسکن · ? راهنما",
+      "فاصله: پخش · N بعدی · P قبلی · R تصادفی · F پسند · / جستجو · ۱–۶ پریست · M نقشه · V ماشین · C ساعت · K اسکن · E اکولایزر · ? راهنما",
     stats: (h, n) => `${h} ساعت گوش · ${n} ایستگاه`,
     export: "خروجی پسند",
     import: "ورود پسند",
@@ -327,7 +327,7 @@ window.I18N = {
     vote: "Vote",
     help: "Help",
     helpBody:
-      "Space play · N next · P prev · R random · F favorite · / search · 1–6 preset · M map · V car · C clock · K scan · ? help",
+      "Space play · N next · P prev · R random · F favorite · / search · 1–6 preset · M map · V car · C clock · K scan · E equalizer · ? help",
     stats: (h, n) => `${h}h listened · ${n} stations`,
     export: "Export favs",
     import: "Import favs",
